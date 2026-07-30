@@ -1,0 +1,30 @@
+{
+  "name": "@nvp/familiar",
+  "version": "0.1.0",
+  "description": "A local-first companion creature that evolves based on your real dev outcomes.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "familiar": "dist/cli.js",
+    "fam": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
+    "watch": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "familiar": "node dist/cli.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.9"
+  }
+}

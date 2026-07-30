@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Familiar</title>
+    <style>
+      :root {
+        --bg: #0e1014;
+        --panel: #161a21;
+        --panel-2: #1d222b;
+        --line: #2a313d;
+        --text: #e6e9ef;
+        --dim: #8b95a7;
+        --accent: #7fd1a0;
+        color-scheme: dark;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(1200px 600px at 50% -10%, #1b2130 0%, transparent 60%),
+          var(--bg);
+        color: var(--text);
+        font: 14px/1.5 ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 32px 16px;
+      }
+
+      .card {
+        width: 100%;
+        max-width: 460px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 28px 26px 22px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      }
+
+      .stage {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        padding-bottom: 6px;
+      }
+
+      canvas {
+        image-rendering: pixelated;
+        width: 160px;
+        height: 160px;
+        animation: bob 2.6s ease-in-out infinite;
+      }
+
+      @keyframes bob {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-6px); }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        canvas { animation: none; }
+      }
+
+      .bubble {
+        min-height: 20px;
+        max-width: 100%;
+        text-align: center;
+        color: var(--dim);
+        font-style: italic;
+        transition: opacity 0.3s;
+      }
+      .bubble:empty { opacity: 0; }
+
+      h1 {
+        margin: 0;
+        font-size: 20px;
+        letter-spacing: 0.02em;
+        text-align: center;
+      }
+
+      .sub {
+        margin: 2px 0 0;
+        text-align: center;
+        color: var(--dim);
+        font-size: 12px;
+      }
+
+      .row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        font-size: 12px;
+        color: var(--dim);
+      }
+
+      .track {
+        height: 10px;
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        overflow: hidden;
+      }
+
+      .fill {
+        height: 100%;
+        width: 0;
+        background: linear-gradient(90deg, var(--accent), #b9e8c9);
+        transition: width 0.6s ease;
+      }
+
+      section { margin-top: 22px; }
+
+      .habit { margin-bottom: 10px; }
+      .habit .track { height: 7px; }
+      .habit .fill { background: #6b7ff0; }
+      .habit.lead .fill { background: linear-gradient(90deg, #ffd233, #fff2a8); }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        text-align: center;
+      }
+      .stat {
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 4px;
+      }
+      .stat b { display: block; font-size: 17px; font-weight: 600; }
+      .stat span { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
+
+      .tones { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+      .tones button {
+        flex: 1 1 auto;
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        color: var(--dim);
+        border-radius: 999px;
+        padding: 6px 10px;
+        font: inherit;
+        font-size: 11px;
+        cursor: pointer;
+        transition: 0.15s;
+      }
+      .tones button:hover { color: var(--text); border-color: #3d4658; }
+      .tones button[aria-pressed="true"] {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #0e1014;
+      }
+
+      .label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #5f6b7e; margin-bottom: 8px; }
+      .offline { text-align: center; color: #d98b7a; font-size: 12px; margin-top: 16px; }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="stage">
+        <canvas id="sprite" width="16" height="16" aria-label="your familiar"></canvas>
+        <div class="bubble" id="bubble"></div>
+      </div>
+
+      <h1 id="name">—</h1>
+      <p class="sub" id="sub"></p>
+
+      <section>
+        <div class="row"><span id="xpLabel">XP</span><span id="xpNext"></span></div>
+        <div class="track" style="margin-top:6px"><div class="fill" id="xpFill"></div></div>
+      </section>
+
+      <section>
+        <div class="label">habits</div>
+        <div id="habits"></div>
+      </section>
+
+      <section>
+        <div class="label">outcomes</div>
+        <div class="stats" id="week"></div>
+      </section>
+
+      <section>
+        <div class="label">tone</div>
+        <div class="tones" id="tones"></div>
+      </section>
+
+      <div class="offline" id="offline" hidden>familiar is no longer running — close this tab</div>
+    </main>
+
+    <script>
+      const canvas = document.getElementById('sprite');
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+
+      let current = null;
+      let blinking = false;
+
+      function drawGrid(grid, palette) {
+        ctx.clearRect(0, 0, 16, 16);
+        for (let y = 0; y < grid.length; y++) {
+          const row = grid[y];
+          for (let x = 0; x < row.length; x++) {
+            const ch = row[x];
+            if (ch === '.' || ch === ' ') continue;
+            const color = palette[ch];
+            if (!color) continue;
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, 1, 1);
+          }
+        }
+      }
+
+      function paint() {
+        if (!current) return;
+        const { sprite } = current;
+        drawGrid(blinking ? sprite.blink : sprite.grid, sprite.palette);
+        if (sprite.tint && sprite.tint.overlay) {
+          ctx.globalAlpha = sprite.tint.alpha;
+          ctx.globalCompositeOperation = 'source-atop';
+          ctx.fillStyle = sprite.tint.overlay;
+          ctx.fillRect(0, 0, 16, 16);
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      // Blink on a loose rhythm so it never looks metronomic.
+      function scheduleBlink() {
+        setTimeout(() => {
+          blinking = true;
+          paint();
+          setTimeout(() => {
+            blinking = false;
+            paint();
+            scheduleBlink();
+          }, 130);
+        }, 2200 + Math.random() * 4200);
+      }
+
+      const HABIT_META = [
+        ['night', '🦉 night owl', 'night_owl'],
+        ['test', '🧪 test guardian', 'test_guardian'],
+        ['speed', '⚡ speed demon', 'speed_demon'],
+        ['firefighter', '🔥 firefighter', 'firefighter'],
+        ['refactorer', '🛠️ refactorer', 'refactorer'],
+        ['oneShot', '🎯 one-shot', 'one_shot'],
+        ['conjurer', '🪄 conjurer', 'conjurer'],
+      ];
+
+      function renderHabits(data) {
+        const host = document.getElementById('habits');
+        host.innerHTML = '';
+        for (const [key, label, branch] of HABIT_META) {
+          const value = Math.round((data.habits[key] || 0) * 100);
+          const wrap = document.createElement('div');
+          wrap.className = 'habit' + (data.form.branch === branch ? ' lead' : '');
+          wrap.innerHTML =
+            '<div class="row"><span>' + label + '</span><span>' + value + '%</span></div>' +
+            '<div class="track" style="margin-top:4px"><div class="fill" style="width:' + value + '%"></div></div>';
+          host.appendChild(wrap);
+        }
+      }
+
+      function renderWeek(data) {
+        const host = document.getElementById('week');
+        const cells = [
+          [data.week.commit, 'commits'],
+          [data.week.pr_merged, 'merged'],
+          [data.checks.fixes, 'fixed'],
+          [data.checks.firstGreens, 'clean'],
+        ];
+        host.innerHTML = cells
+          .map(([n, l]) => '<div class="stat"><b>' + n + '</b><span>' + l + '</span></div>')
+          .join('');
+      }
+
+      function renderTones(data) {
+        const host = document.getElementById('tones');
+        host.innerHTML = '';
+        for (const tone of data.tones) {
+          const btn = document.createElement('button');
+          btn.textContent = tone.label;
+          btn.setAttribute('aria-pressed', String(tone.id === data.tone));
+          btn.onclick = async () => {
+            await fetch('/api/tone', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ tone: tone.id }),
+            });
+            refresh();
+          };
+          host.appendChild(btn);
+        }
+      }
+
+      function render(data) {
+        current = data;
+        paint();
+
+        document.getElementById('name').textContent = data.form.emoji + '  ' + data.form.name;
+        document.getElementById('sub').textContent =
+          data.form.speciesLabel +
+          ' — ' +
+          data.form.speciesBlurb +
+          (data.form.branchLabel ? ' · ' + data.form.branchLabel : '');
+
+        document.getElementById('bubble').textContent = data.quip ? '“' + data.quip + '”' : '';
+
+        const into = data.xp - data.levelFloor;
+        const span = data.nextLevelAt === null ? 0 : data.nextLevelAt - data.levelFloor;
+        document.getElementById('xpLabel').textContent = 'Lv.' + data.level;
+        document.getElementById('xpNext').textContent =
+          data.nextLevelAt === null ? data.xp + ' xp (max)' : into + ' / ' + span + ' xp';
+        document.getElementById('xpFill').style.width = Math.round(data.progress * 100) + '%';
+
+        renderHabits(data);
+        renderWeek(data);
+        renderTones(data);
+      }
+
+      async function refresh() {
+        try {
+          const res = await fetch('/api/state', { cache: 'no-store' });
+          if (!res.ok) throw new Error('bad status');
+          render(await res.json());
+          document.getElementById('offline').hidden = true;
+        } catch {
+          // The server shuts itself down when nobody is looking; say so plainly
+          // rather than silently showing stale numbers.
+          document.getElementById('offline').hidden = false;
+        }
+      }
+
+      refresh();
+      setInterval(refresh, 2000);
+      scheduleBlink();
+    </script>
+  </body>
+</html>
