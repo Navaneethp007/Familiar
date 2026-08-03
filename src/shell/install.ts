@@ -8,12 +8,26 @@
  * uninstall can remove exactly.
  */
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { ensureHome } from '../state/log.js';
 import { profileBackupPath } from '../state/paths.js';
+import {
+  classifyPolicy,
+  persistentExecutionPolicy,
+  realPolicyProbe,
+  type PolicyProbe,
+  type PolicyVerdict,
+} from './policy.js';
 import { BLOCK_END, BLOCK_START, bashSnippet, powershellSnippet } from './snippets.js';
 
 export const SHELLS = ['powershell', 'bash'] as const;
@@ -130,7 +144,17 @@ export function uninstallShell(shell: ShellName): ShellUninstallResult {
   // Restore the file to how it would have looked untouched: same content, one
   // trailing newline, no leftover blank run where our block used to be.
   const cleaned = stripped.replace(/\n{3,}/g, '\n\n').replace(/^\s*\n/, '').replace(/\s*$/, '');
-  writeFileSync(profilePath, cleaned.length > 0 ? cleaned + '\n' : '', 'utf8');
+
+  if (cleaned.length > 0) {
+    writeFileSync(profilePath, cleaned + '\n', 'utf8');
+  } else {
+    // Nothing of the user's was in here — the file exists only because we made
+    // it. Leaving an empty one behind is not harmless: Windows checks the
+    // signature of a profile before reading it, so a zero-byte unsigned .ps1
+    // still raises a security error on every shell launch. Uninstall has to
+    // actually undo the install. The backup was taken two lines above.
+    unlinkSync(profilePath);
+  }
 
   return { shell, profilePath, backup, removed: true };
 }
@@ -139,16 +163,41 @@ export interface ShellStatus {
   shell: ShellName;
   profilePath: string;
   profileExists: boolean;
+  /** Our block is present in the file. Says nothing about whether it ever runs. */
   installed: boolean;
+  /** Whether the shell will actually load that profile. Always `ok` for bash. */
+  loadVerdict: PolicyVerdict;
+  /** The policy behind the verdict, for the diagnostic line. Null off Windows. */
+  policy: string | null;
 }
 
-export function shellStatus(shell: ShellName): ShellStatus {
+/**
+ * Reports both halves of "is this working": the block is in the file, *and* the
+ * file is allowed to run.
+ *
+ * Only the first half used to be checked, which is how a machine could report
+ * `installed` for days while the integration had never once executed. The probe
+ * is injected so tests never spawn a shell.
+ */
+export function shellStatus(shell: ShellName, probe: PolicyProbe = realPolicyProbe()): ShellStatus {
   const profilePath = profilePathFor(shell);
   const profileExists = existsSync(profilePath);
+  const installed = profileExists && hasBlock(readProfile(profilePath));
+
+  // .bashrc has no signing gate, and nor does any non-Windows shell, so there
+  // is nothing to ask and no reason to pay for a subprocess. Asked at most once
+  // — the probe is a process spawn, not a lookup.
+  if (shell !== 'powershell' || probe.platform !== 'win32') {
+    return { shell, profilePath, profileExists, installed, loadVerdict: 'ok', policy: null };
+  }
+
+  const policy = persistentExecutionPolicy(probe);
   return {
     shell,
     profilePath,
     profileExists,
-    installed: profileExists && hasBlock(readProfile(profilePath)),
+    installed,
+    loadVerdict: classifyPolicy(policy),
+    policy,
   };
 }

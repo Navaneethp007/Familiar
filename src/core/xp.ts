@@ -102,13 +102,22 @@ export function xpFor(event: FamiliarEvent, checks?: CheckFoldResult): number {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Quiet for this long and the familiar goes sad — and starts saying so.
+ *
+ * Exported because the statusline needs the same threshold to decide when to
+ * show an idle line. Two independent constants would drift, and a creature that
+ * looks sad while claiming to be fine is worse than either alone.
+ */
+export const IDLE_AFTER_MS = 3 * DAY_MS;
+
 function deriveMood(events: readonly FamiliarEvent[], now: number): Mood {
   const recent = events.filter((e) => now - Date.parse(e.t) <= 2 * DAY_MS);
 
   if (recent.length === 0) {
     const last = events[events.length - 1];
     // Quiet for days. Sad, not scolding — it misses you, it isn't judging you.
-    if (!last || now - Date.parse(last.t) > 3 * DAY_MS) return 'sad';
+    if (!last || now - Date.parse(last.t) > IDLE_AFTER_MS) return 'sad';
     return 'neutral';
   }
 

@@ -11,9 +11,10 @@
  */
 
 import { formIdentity } from '../core/forms.js';
-import { deriveState } from '../core/xp.js';
+import { deriveState, IDLE_AFTER_MS } from '../core/xp.js';
 import type { FamiliarEvent } from '../core/events.js';
 import type { Species } from '../core/species.js';
+import { speak, type ToneName } from '../core/tone.js';
 import { readRenderCache } from '../state/config.js';
 
 /** How long a quip stays on screen before the line goes quiet again. */
@@ -29,8 +30,23 @@ export function miniBar(progress: number, width = 5): string {
 export interface StatuslineInput {
   events: readonly FamiliarEvent[];
   species: Species;
+  /** Needed for the idle line. Optional so existing callers keep working. */
+  tone?: ToneName;
   quip?: string | null;
   now?: Date;
+}
+
+/**
+ * How long the log has been silent, in ms.
+ *
+ * An empty log is the idlest state there is — a fresh install has nothing else
+ * to say, and "ready when you are" reads far better than a bare empty bar. An
+ * unparseable timestamp is treated the same way rather than throwing.
+ */
+function quietFor(lastEventAt: string | null, now: number): number {
+  if (lastEventAt === null) return Number.POSITIVE_INFINITY;
+  const at = Date.parse(lastEventAt);
+  return Number.isNaN(at) ? Number.POSITIVE_INFINITY : now - at;
 }
 
 export function renderStatusline(input: StatuslineInput): string {
@@ -39,7 +55,19 @@ export function renderStatusline(input: StatuslineInput): string {
   const form = formIdentity(state.species, state.stage, state.branch);
 
   const base = `${form.emoji} Lv.${state.level} ${miniBar(state.progress)}`;
-  return input.quip ? `${base} · "${input.quip}"` : base;
+  if (input.quip) return `${base} · "${input.quip}"`;
+
+  // Nothing fresh to say, and nothing has happened in days. Say so — but pick
+  // deterministically. This function re-runs many times a minute, so a random
+  // choice would flicker on every keystroke. The local calendar date is stable
+  // within a day and moves on tomorrow, and costs no I/O to compute, which
+  // matters because this file is not allowed to write anything.
+  if (quietFor(state.lastEventAt, now.getTime()) > IDLE_AFTER_MS) {
+    const dayStamp = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+    return `${base} · "${speak(input.tone ?? 'deadpan', 'idle', dayStamp)}"`;
+  }
+
+  return base;
 }
 
 /** Reads the cached quip, if one was set recently enough to still be worth showing. */

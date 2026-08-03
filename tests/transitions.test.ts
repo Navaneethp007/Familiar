@@ -252,3 +252,90 @@ describe('integration with the level curve', () => {
     }
   });
 });
+
+describe('a slot going green cold for the first time', () => {
+  // `minutesLater` is an absolute offset from START, not a delta, so both ends
+  // of a gap have to be pinned — otherwise the default `seq` counter decides
+  // the spacing and the gap is whatever the test order happens to make it.
+  const AT_ZERO = { minutesLater: 0 } as const;
+  const STALE_MINUTES = STALE_RED_MS / 60_000 + 60;
+
+  it('records the first green, with the event that caused it', () => {
+    const events = [check(true)];
+    const result = summary(events);
+    expect(result.coldFirstGreens).toBe(1);
+    expect(result.lastColdGreen?.repoPath).toBe('/repo/a');
+    expect(result.lastColdGreen?.kind).toBe('test');
+    expect(result.lastColdGreen?.eventKey).toBe(events[0]?.key);
+  });
+
+  it('does not fire again for the same slot, however many greens follow', () => {
+    const events = [check(true)];
+    for (let i = 0; i < 30; i++) events.push(check(true));
+    const result = summary(events);
+    expect(result.coldFirstGreens).toBe(1);
+    expect(result.redundantGreens).toBe(30);
+  });
+
+  // The entire reason this exists as a separate counter. `firstGreens` is a
+  // rhythm — it recurs after every idle day. This is a milestone.
+  it('does not fire again after a stale gap, even though firstGreens does', () => {
+    const events = [check(true, AT_ZERO), check(true, { minutesLater: STALE_MINUTES })];
+    const result = summary(events);
+    expect(result.firstGreens).toBe(2);
+    expect(result.coldFirstGreens).toBe(1);
+  });
+
+  it('counts a slot that was only ever red before, once it finally goes green', () => {
+    const events = [check(false, AT_ZERO), check(true, { minutesLater: STALE_MINUTES })];
+    const result = summary(events);
+    // Stale, so not scored as a fix — but it is genuinely the first green here.
+    expect(result.fixes).toBe(0);
+    expect(result.coldFirstGreens).toBe(1);
+  });
+
+  it('does not count a red that was fixed promptly — that is a fix, not a first', () => {
+    const result = summary([check(false), check(true)]);
+    expect(result.fixes).toBe(1);
+    expect(result.coldFirstGreens).toBe(0);
+  });
+
+  // The sharp edge of the name. A slot whose first green arrived as a fix is
+  // marked green forever, so it can never produce a cold green later — even
+  // after a stale gap that would otherwise qualify. Deliberate: the fix already
+  // got its own line, and saying it twice reads as not paying attention.
+  it('never counts a slot whose first green arrived as a fix, however long it then idles', () => {
+    const result = summary([
+      check(false, AT_ZERO),
+      check(true, { minutesLater: 5 }),
+      check(true, { minutesLater: STALE_MINUTES }),
+    ]);
+    expect(result.fixes).toBe(1);
+    expect(result.firstGreens).toBe(1);
+    expect(result.coldFirstGreens).toBe(0);
+  });
+
+  it('keys on repo and kind, like every other transition', () => {
+    expect(summary([check(true, { repo: '/a' }), check(true, { repo: '/b' })]).coldFirstGreens).toBe(2);
+    expect(
+      summary([check(true, { kind: 'test' }), check(true, { kind: 'lint' })]).coldFirstGreens,
+    ).toBe(2);
+  });
+
+  it('changes no XP at all', () => {
+    expect(xpOf([check(true)])).toBe(FIRST_GREEN_XP);
+    // A stale re-green still pays the small first-green nudge, exactly as before.
+    expect(xpOf([check(true, AT_ZERO), check(true, { minutesLater: STALE_MINUTES })])).toBe(
+      2 * FIRST_GREEN_XP,
+    );
+    expect(xpOf([check(false), check(true)])).toBe(FIX_BASE_XP);
+  });
+
+  it('stays deterministic', () => {
+    const events = [check(true), check(false), check(true), check(true, { repo: '/b' })];
+    const first = foldChecks(events).coldGreenRecords;
+    for (let i = 0; i < 5; i++) {
+      expect(foldChecks(events).coldGreenRecords).toEqual(first);
+    }
+  });
+});

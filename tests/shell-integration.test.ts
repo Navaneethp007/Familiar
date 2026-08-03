@@ -241,14 +241,22 @@ describe.runIf(POWERSHELL)('powershell', () => {
       'utf8',
     );
 
-    execFileSync(POWERSHELL!, ['-NoProfile', '-NonInteractive', '-File', scriptPath], {
-      cwd: work,
-      encoding: 'utf8',
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, FAMILIAR_HOME: home, ...extraEnv },
-      timeout: 30_000,
-    });
+    // Bypass because -File runs a script we wrote to a temp dir a line ago, and
+    // the Windows default (AllSigned / RemoteSigned) refuses to run it unsigned.
+    // Without this the suite is red on a stock Windows machine — and green under
+    // any shell that already set a Bypass process policy, which hides it.
+    execFileSync(
+      POWERSHELL!,
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
+      {
+        cwd: work,
+        encoding: 'utf8',
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, FAMILIAR_HOME: home, ...extraEnv },
+        timeout: 30_000,
+      },
+    );
     return spool();
   }
 

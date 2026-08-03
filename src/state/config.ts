@@ -24,6 +24,15 @@ export interface FamiliarConfig {
   repos: string[];
   /** Whether `init` wired up Claude Code. */
   claudeInstalled: boolean;
+  /**
+   * Speak the big moments out loud. Off until asked for.
+   *
+   * Needs no migration despite arriving after v1: readConfig rebuilds the object
+   * field by field, so a config written before this existed reads as `undefined`
+   * and the `=== true` test below lands on false — which is the correct default
+   * for something that makes noise. Do not "helpfully" add a version bump.
+   */
+  voice: boolean;
 }
 
 export function defaultConfig(species: Species = 'sprout'): FamiliarConfig {
@@ -34,6 +43,7 @@ export function defaultConfig(species: Species = 'sprout'): FamiliarConfig {
     createdAt: new Date().toISOString(),
     repos: [],
     claudeInstalled: false,
+    voice: false,
   };
 }
 
@@ -70,6 +80,7 @@ export function readConfig(): FamiliarConfig | null {
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : new Date().toISOString(),
     repos: Array.isArray(raw.repos) ? raw.repos.filter((r): r is string => typeof r === 'string') : [],
     claudeInstalled: raw.claudeInstalled === true,
+    voice: raw.voice === true,
   };
 }
 

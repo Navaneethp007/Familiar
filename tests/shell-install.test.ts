@@ -13,8 +13,36 @@ import {
   uninstallShell,
   type ShellName,
 } from '../src/shell/install.js';
+import type { PolicyProbe } from '../src/shell/policy.js';
 import { BLOCK_END, BLOCK_START } from '../src/shell/snippets.js';
 import { tempDir, useTempHome } from './helpers.js';
+
+/**
+ * A policy probe that answers instantly and counts how often it was asked.
+ *
+ * Every shellStatus call in this file passes one. Without it the real probe
+ * spawns PowerShell, which is slow and makes the result depend on whatever
+ * policy the machine running the tests happens to have.
+ */
+function countingProbe(
+  output: string | null,
+  platform: NodeJS.Platform = 'win32',
+): { probe: PolicyProbe; count: () => number } {
+  let calls = 0;
+  return {
+    count: () => calls,
+    probe: {
+      platform,
+      env: {},
+      run: () => {
+        calls++;
+        return output;
+      },
+    },
+  };
+}
+
+const PERMISSIVE = countingProbe('RemoteSigned').probe;
 
 let home: ReturnType<typeof useTempHome>;
 let profileDir: string;
@@ -111,17 +139,97 @@ describe.each(SHELLS)('%s profile', (shell) => {
   });
 
   it('reports status accurately', () => {
-    expect(shellStatus(shell).installed).toBe(false);
+    expect(shellStatus(shell, PERMISSIVE).installed).toBe(false);
     installShell(shell);
-    expect(shellStatus(shell).installed).toBe(true);
+    expect(shellStatus(shell, PERMISSIVE).installed).toBe(true);
     uninstallShell(shell);
-    expect(shellStatus(shell).installed).toBe(false);
+    expect(shellStatus(shell, PERMISSIVE).installed).toBe(false);
   });
 
   it('handles a profile saved with a BOM', () => {
     writeFileSync(profileFor(shell), '﻿' + existing, 'utf8');
     expect(() => installShell(shell)).not.toThrow();
     expect(hasBlock(readFileSync(profileFor(shell), 'utf8'))).toBe(true);
+  });
+
+  // Leaving an empty file behind is not harmless on Windows: the signature of a
+  // profile is checked before it is read, so a zero-byte unsigned .ps1 still
+  // raises a security error on every shell launch. Uninstall has to undo the
+  // install, not just blank it.
+  it('deletes a profile it created, rather than emptying it', () => {
+    installShell(shell);
+    expect(existsSync(profileFor(shell))).toBe(true);
+
+    expect(uninstallShell(shell).removed).toBe(true);
+    expect(existsSync(profileFor(shell))).toBe(false);
+  });
+
+  it('still takes a backup on the delete path', () => {
+    installShell(shell);
+    const result = uninstallShell(shell);
+    expect(result.backup).not.toBeNull();
+    expect(existsSync(result.backup as string)).toBe(true);
+  });
+
+  it('never deletes a profile that had anything of the user in it', () => {
+    writeFileSync(profileFor(shell), existing, 'utf8');
+    installShell(shell);
+    uninstallShell(shell);
+
+    expect(existsSync(profileFor(shell))).toBe(true);
+    expect(readFileSync(profileFor(shell), 'utf8')).toBe(existing);
+  });
+});
+
+describe('whether the profile can actually load', () => {
+  it('reports a blocking policy so the CLI can warn about it', () => {
+    installShell('powershell');
+    const { probe } = countingProbe('Restricted');
+    const status = shellStatus('powershell', probe);
+
+    expect(status.installed).toBe(true);
+    expect(status.loadVerdict).toBe('blocked');
+    expect(status.policy).toBe('Restricted');
+  });
+
+  it('reports a permissive policy as fine', () => {
+    installShell('powershell');
+    const status = shellStatus('powershell', countingProbe('RemoteSigned').probe);
+    expect(status.loadVerdict).toBe('ok');
+    expect(status.policy).toBe('RemoteSigned');
+  });
+
+  it('says unknown rather than guessing when the probe cannot answer', () => {
+    installShell('powershell');
+    const status = shellStatus('powershell', countingProbe(null).probe);
+    expect(status.loadVerdict).toBe('unknown');
+    expect(status.policy).toBeNull();
+  });
+
+  // .bashrc has no signing gate, so there is nothing to ask and no reason to
+  // pay for a process spawn.
+  it('never probes for bash, whatever the platform', () => {
+    installShell('bash');
+    const { probe, count } = countingProbe('Restricted');
+    const status = shellStatus('bash', probe);
+
+    expect(status.loadVerdict).toBe('ok');
+    expect(status.policy).toBeNull();
+    expect(count()).toBe(0);
+  });
+
+  it('never probes off Windows', () => {
+    installShell('powershell');
+    const { probe, count } = countingProbe('Restricted', 'linux');
+    expect(shellStatus('powershell', probe).loadVerdict).toBe('ok');
+    expect(count()).toBe(0);
+  });
+
+  it('asks at most once per call — the probe is a process spawn', () => {
+    installShell('powershell');
+    const { probe, count } = countingProbe('Restricted');
+    shellStatus('powershell', probe);
+    expect(count()).toBe(1);
   });
 });
 

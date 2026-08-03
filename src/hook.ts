@@ -15,6 +15,7 @@
 
 import { eventsFromHook, type HookPayload } from './adapters/claude-code.js';
 import { scanAll } from './adapters/git.js';
+import { speakAloud, VOICE_KEYS } from './adapters/voice.js';
 import { drainShellLog } from './adapters/terminal.js';
 import type { FamiliarEvent } from './core/events.js';
 import { deriveState, type CreatureState } from './core/xp.js';
@@ -104,6 +105,14 @@ export function chooseSpeakKey(
   const broke = fresh.find((e) => e.type === 'check_failed' || e.type === 'tests_failed');
   if (broke) return { key: 'check_broke', seed: broke.key };
 
+  // Below check_broke deliberately: something newly working is good news, but
+  // something newly broken is the news you need first. Read off the whole-log
+  // fold rather than `fresh`, because "first ever" is not a property of a batch.
+  if (after.checks.coldFirstGreens > before.checks.coldFirstGreens) {
+    const green = after.checks.lastColdGreen;
+    if (green) return { key: 'tests_passed', seed: green.eventKey };
+  }
+
   const commit = [...fresh].reverse().find((e) => e.type === 'commit');
   if (commit) {
     const hour = commit.meta.hour;
@@ -166,7 +175,18 @@ async function run(event: string): Promise<void> {
   const alwaysSpeak = choice.key === 'evolved' || choice.key === 'level_up';
   if (!alwaysSpeak && !shouldSpeak(readRenderCache()?.updatedAt)) return;
 
-  writeRenderCache(speak(config.tone, choice.key, choice.seed));
+  const quip = speak(config.tone, choice.key, choice.seed);
+  writeRenderCache(quip);
+
+  // After the cache write, so the line still lands even if audio misbehaves.
+  // speakAloud spawns detached and owns its own failures, so nothing below this
+  // point can delay or fail the hook.
+  //
+  // No separate voice cooldown: the two fix keys are rate-limited by the check
+  // above, and level_up / evolved reach here via alwaysSpeak with no limit at
+  // all — which is fine only because neither can repeat. A level is crossed
+  // once and a branch locks once.
+  if (config.voice && VOICE_KEYS.has(choice.key)) speakAloud(quip);
 }
 
 export async function runHook(event: string): Promise<void> {

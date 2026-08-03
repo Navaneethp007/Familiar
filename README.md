@@ -32,16 +32,56 @@ node dist/cli.js init
 |---------|--------------|
 | `familiar init` | Pick your species, wire up Claude Code |
 | `familiar status` | Text card: form, level, XP, habits, checks |
+| `familiar look` | Draw the sprite in your terminal (`--animate` to blink) |
 | `familiar show` | Open the pixel-art widget in your browser |
 | `familiar tone <name>` | `hype` · `deadpan` · `zen` · `gremlin` |
+| `familiar voice on` | Speak the big moments out loud |
 | `familiar shell install` | Count checks from your own terminal |
 | `familiar uninstall` | Cleanly remove hooks + statusline |
+
+## Seeing it
+
+`familiar look` draws the same 16×16 sprite the widget uses, as half-block characters —
+16 columns by 8 rows, which comes out square because a terminal cell is about twice as
+tall as it is wide.
+
+It adapts down rather than refusing: 24-bit colour where the terminal has it, the xterm-256
+palette where it doesn't, and a plain `█ ▀ ▄` silhouette with no escape codes at all when
+you set `NO_COLOR` or pipe it somewhere. You always get the creature; you don't always get
+the colour.
+
+## Hearing it
+
+`familiar voice on` speaks four moments out loud: a level up, an evolution, a fix that took
+several attempts, and a fix you made alongside an agent. Nothing else — a footer line you
+can ignore is not the same kind of interruption as a voice in the room.
+
+It uses whatever your OS already has (SAPI on Windows, `say` on macOS, `spd-say` on Linux),
+so nothing is downloaded and nothing is sent anywhere. A machine with no speech synthesiser
+is silently quiet; `familiar voice status` will tell you if that's what's happening.
 
 ## Counting what you fix
 
 `familiar shell install` adds a small block to your PowerShell profile and `.bashrc`. After that, every test, build, typecheck and lint run counts — **whoever runs it**: you in your terminal, Claude Code, Cursor, a VS Code task.
 
 The block appends one line to a spool file using a shell builtin. It launches no program, so it costs nothing on every prompt, and it never touches your exit code. It only records check-shaped commands — not a second copy of your shell history, and never anything you paste on a command line. Remove it with `familiar shell uninstall`; your profile is backed up first either way.
+
+### On Windows, check your execution policy
+
+Windows will not load a PowerShell profile unless its execution policy allows it, and the
+**default on Windows 10 and 11 is `Restricted`, which does not.** On such a machine the
+profile is written correctly and then never runs — you get a security error on every new
+shell and nothing is counted.
+
+`familiar shell install` detects this and tells you. The fix needs no admin rights:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+`RemoteSigned` still requires a signature on anything downloaded from the internet; it only
+trusts scripts written locally. Check where you stand with `Get-ExecutionPolicy -List` — if
+`MachinePolicy` is set by your employer, the command above will not override it.
 
 ## How it grows
 
@@ -76,7 +116,7 @@ State lives in `~/.familiar/`:
 ```text
 events.jsonl   append-only log of everything that happened
 shell.log      spool your shell appends check outcomes to
-config.json    species, tone, registered repos
+config.json    species, tone, voice, registered repos
 cursor.json    last-scanned commit per repo, shell spool offset
 error.log      anything a hook swallowed
 ```

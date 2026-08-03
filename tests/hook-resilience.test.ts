@@ -64,6 +64,21 @@ describe('the hook always exits 0', () => {
     expect((await runHook('SessionStart', payload, home)).code).toBe(0);
   });
 
+  // The only test that proves voice cannot break the editor. On a machine with
+  // no speech backend this exercises the silent no-op path end to end; on one
+  // with a backend it proves the detached spawn does not hold the hook open.
+  it('with voice switched on', async () => {
+    writeFileSync(
+      join(home, 'config.json'),
+      JSON.stringify({ version: 1, species: 'sprout', tone: 'deadpan', repos: [], voice: true }),
+      'utf8',
+    );
+    const payload = JSON.stringify({ hook_event_name: 'SessionStart', cwd: home });
+    const result = await runHook('SessionStart', payload, home);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe('');
+  });
+
   it('still reads a payload that arrives with a UTF-8 BOM', async () => {
     const payload = JSON.stringify({
       hook_event_name: 'PostToolUse',

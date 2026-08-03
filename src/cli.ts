@@ -20,9 +20,12 @@ import {
 } from './adapters/git.js';
 import { formIdentity } from './core/forms.js';
 import { profileRhythm, selectSpecies, SPECIES_BLURBS, SPECIES_LABELS } from './core/species.js';
+import { blink, gridFor } from './core/sprites/grids.js';
+import { paletteFor } from './core/sprites/palettes.js';
 import { TONES, TONE_LABELS, type ToneName } from './core/tone.js';
 import { deriveState } from './core/xp.js';
 import { drainShellLog } from './adapters/terminal.js';
+import { realVoiceEnv, speakAloud, voiceCommandFor } from './adapters/voice.js';
 import { runHook } from './hook.js';
 import {
   installShell,
@@ -32,6 +35,7 @@ import {
   uninstallShell,
   type ShellName,
 } from './shell/install.js';
+import { POLICY_FIX_COMMAND } from './shell/policy.js';
 import { cliEntrypoint, installClaudeIntegration, uninstallClaudeIntegration } from './install.js';
 import {
   defaultConfig,
@@ -44,6 +48,8 @@ import {
 } from './state/config.js';
 import { appendEvents, ensureHome, readEventsDetailed } from './state/log.js';
 import { claudeSettingsPath, familiarHome } from './state/paths.js';
+import { blinkSprite } from './ui/animate.js';
+import { detectCaps, renderIdentity, renderSprite, tintPalette } from './ui/sprite-term.js';
 import { renderStatusCard } from './ui/status-card.js';
 import { freshQuip, renderStatusline } from './ui/statusline.js';
 import { startWidget } from './ui/web/server.js';
@@ -180,6 +186,7 @@ function cmdStatus(argv: string[]): void {
       state,
       events,
       tone: config.tone,
+      voice: config.voice,
       quip: freshQuip() ?? undefined,
       skippedLines: skipped,
     }),
@@ -205,7 +212,14 @@ function cmdStatusline(): void {
     const config = readConfig();
     if (!config) return;
     const { events } = readEventsDetailed();
-    out(renderStatusline({ events, species: config.species, quip: freshQuip() }));
+    out(
+      renderStatusline({
+        events,
+        species: config.species,
+        tone: config.tone,
+        quip: freshQuip(),
+      }),
+    );
   } catch (error) {
     logError('statusline', error);
   }
@@ -252,6 +266,101 @@ async function cmdShow(): Promise<void> {
   out('');
 }
 
+// --- look ------------------------------------------------------------------
+
+async function cmdLook(argv: string[]): Promise<void> {
+  const config = readOrCreateConfig();
+
+  // The module header is not kidding: looking at your familiar is the refresh.
+  try {
+    appendEvents([...drainShellLog(), ...scanAll()]);
+  } catch (error) {
+    logError('look:ingest', error);
+  }
+
+  const { events } = readEventsDetailed();
+  const state = deriveState(events, { species: config.species });
+
+  const caps = detectCaps(
+    process.env,
+    Boolean(process.stdout.isTTY),
+    process.platform,
+    process.stdout.rows,
+  );
+
+  const grid = gridFor(state.species, state.stage, state.branch);
+  const palette = tintPalette(paletteFor(state.species, state.branch), state.mood);
+  const base = renderSprite({ grid, palette, caps });
+
+  out('');
+
+  // Piping `--animate` somewhere must produce one clean frame, not six frames of
+  // escape soup, and a terminal too short to hold the sprite cannot be scrolled
+  // back over.
+  const canAnimate =
+    argv.includes('--animate') &&
+    caps.tier !== 'mono' &&
+    Boolean(process.stdout.isTTY) &&
+    (caps.rows === null || caps.rows >= 12);
+
+  if (canAnimate) {
+    await blinkSprite(base, renderSprite({ grid: blink(grid), palette, caps }));
+  } else {
+    out(base);
+  }
+
+  out('');
+  out(
+    renderIdentity({
+      species: state.species,
+      stage: state.stage,
+      branch: state.branch,
+      level: state.level,
+      quip: freshQuip(),
+    }),
+  );
+  out('');
+}
+
+// --- voice -----------------------------------------------------------------
+
+function cmdVoice(argv: string[]): void {
+  const config = readOrCreateConfig();
+  const action = argv[0] ?? 'status';
+
+  if (action === 'status') {
+    out('');
+    out(`  voice is ${config.voice ? 'on' : 'off'}`);
+    // Silence is the right runtime behaviour for a missing backend and a
+    // terrible diagnostic, so this is the one place that says so out loud.
+    if (!voiceCommandFor('test', realVoiceEnv())) {
+      out('  no speech backend on this machine — install speech-dispatcher (spd-say)');
+    }
+    out('');
+    out('  speaks on: a level up, an evolution, a hard-won fix, and a fix made with an agent');
+    out('  usage: familiar voice on|off|status');
+    out('');
+    return;
+  }
+
+  if (action === 'on' || action === 'off') {
+    config.voice = action === 'on';
+    writeConfig(config);
+    out('');
+    out(`  voice ${config.voice ? 'on' : 'off'}`);
+    if (config.voice) {
+      // A voice feature you cannot verify gets reported as broken.
+      speakAloud('voice enabled');
+      out('  you should have heard that. if not, try `familiar voice status`.');
+    }
+    out('');
+    return;
+  }
+
+  out(`  unknown voice action "${action}". use on, off or status.`);
+  process.exitCode = 1;
+}
+
 // --- shell -----------------------------------------------------------------
 
 /**
@@ -272,6 +381,11 @@ function cmdShell(argv: string[]): void {
       const status = shellStatus(shell);
       out(`  ${SHELL_LABELS[shell].padEnd(11)} ${status.installed ? 'installed' : 'not installed'}`);
       out(`              ${status.profilePath}`);
+      // "installed" only ever meant "the block is in the file". Saying so and
+      // stopping there is what let this look healthy while doing nothing.
+      if (status.installed && status.loadVerdict === 'blocked') {
+        out(`              ⚠ cannot load — execution policy is ${status.policy}`);
+      }
     }
     out('');
     out('  usage: familiar shell install|uninstall [powershell|bash]');
@@ -282,20 +396,40 @@ function cmdShell(argv: string[]): void {
   if (action === 'install') {
     ensureHome();
     out('');
+    let blocked: string | null = null;
     for (const shell of targets) {
       try {
         const result = installShell(shell);
         const verb = result.replaced ? 'updated' : result.created ? 'created' : 'added to';
         out(`  ${SHELL_LABELS[shell]}: ${verb} ${result.profilePath}`);
         if (result.backup) out(`              backup: ${result.backup}`);
+
+        const status = shellStatus(shell);
+        if (status.loadVerdict === 'blocked') blocked = status.policy;
       } catch (error) {
         logError(`shell:install:${shell}`, error);
         out(`  ${SHELL_LABELS[shell]}: failed — ${(error as Error).message}`);
       }
     }
+
     out('');
-    out('  open a NEW shell for this to take effect.');
-    out('  from then on, test/build/typecheck runs count wherever you run them.');
+    if (blocked) {
+      // The write succeeded and the file is correct — the machine simply will
+      // not run it. Reporting plain success here is how most Windows users end
+      // up with a security error on every shell launch and no feature at all.
+      out(`  ⚠  your execution policy is ${blocked}, so PowerShell will refuse to load`);
+      out('     this profile. You will see a security error on every new shell, and');
+      out('     nothing will be counted until it is changed.');
+      out('');
+      out('     this usually fixes it, and needs no admin rights:');
+      out(`       ${POLICY_FIX_COMMAND}`);
+      out('');
+      out('     (on a machine managed by group policy it may not apply — check with');
+      out('      Get-ExecutionPolicy -List)');
+    } else {
+      out('  open a NEW shell for this to take effect.');
+      out('  from then on, test/build/typecheck runs count wherever you run them.');
+    }
     out('');
     return;
   }
@@ -349,8 +483,10 @@ function cmdHelp(): void {
 
     familiar init [--force] [--no-claude]   seed a species, wire up Claude Code
     familiar status [--debug]               form, level, XP, habits, this week
+    familiar look [--animate]               draw the sprite in your terminal
     familiar show                           open the pixel-art widget
     familiar tone [name]                    ${TONES.join(' · ')}
+    familiar voice on|off|status            speak the big moments out loud
     familiar shell install|uninstall        count checks from your own terminal
     familiar uninstall                      remove hooks and statusline
     familiar where                          print state locations
@@ -392,11 +528,17 @@ async function main(): Promise<void> {
     case 'status':
       cmdStatus(rest);
       return;
+    case 'look':
+      await cmdLook(rest);
+      return;
     case 'show':
       await cmdShow();
       return;
     case 'tone':
       cmdTone(rest);
+      return;
+    case 'voice':
+      cmdVoice(rest);
       return;
     case 'shell':
       cmdShell(rest);

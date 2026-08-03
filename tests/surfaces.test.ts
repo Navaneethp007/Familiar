@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { TONE_BANKS, TONES, type ToneName } from '../src/core/tone.js';
 import { deriveState } from '../src/core/xp.js';
 import { writeRenderCache } from '../src/state/config.js';
 import { bar, renderStatusCard } from '../src/ui/status-card.js';
@@ -51,8 +52,13 @@ describe('the statusline', () => {
     expect(withQuip).toContain('"noted."');
   });
 
-  it('stays quiet when there is no quip', () => {
-    expect(renderStatusline({ events: [], species: 'sprout' })).not.toContain('"');
+  it('stays quiet when there is no quip and the log is still warm', () => {
+    const line = renderStatusline({
+      events: series('commit', 2, {}, new Date('2026-07-01T09:00:00Z')),
+      species: 'sprout',
+      now: new Date('2026-07-01T12:00:00Z'),
+    });
+    expect(line).not.toContain('"');
   });
 
   it('fits comfortably on one line', () => {
@@ -67,6 +73,57 @@ describe('the statusline', () => {
 
   it('renders an empty log without throwing', () => {
     expect(() => renderStatusline({ events: [], species: 'wisp' })).not.toThrow();
+  });
+});
+
+describe('the idle line', () => {
+  const QUIET = new Date('2026-07-01T09:00:00Z');
+  const FOUR_DAYS_LATER = new Date('2026-07-05T09:00:00Z');
+
+  const idleLine = (tone: ToneName = 'deadpan', now = FOUR_DAYS_LATER): string =>
+    renderStatusline({ events: series('commit', 2, {}, QUIET), species: 'sprout', tone, now });
+
+  it('speaks up once the log has been quiet for days', () => {
+    const line = idleLine();
+    expect(line).toContain('"');
+    const spoken = /"([^"]+)"/.exec(line)?.[1] ?? '';
+    expect(TONE_BANKS.deadpan.idle).toContain(spoken);
+  });
+
+  it('uses the configured tone', () => {
+    const spoken = /"([^"]+)"/.exec(idleLine('gremlin'))?.[1] ?? '';
+    expect(TONE_BANKS.gremlin.idle).toContain(spoken);
+  });
+
+  it('treats an empty log as the idlest state there is', () => {
+    const line = renderStatusline({ events: [], species: 'sprout', tone: 'zen' });
+    const spoken = /"([^"]+)"/.exec(line)?.[1] ?? '';
+    expect(TONE_BANKS.zen.idle).toContain(spoken);
+  });
+
+  it('yields to a real quip', () => {
+    const line = renderStatusline({
+      events: series('commit', 2, {}, QUIET),
+      species: 'sprout',
+      quip: 'noted.',
+      now: FOUR_DAYS_LATER,
+    });
+    expect(line).toContain('"noted."');
+  });
+
+  // The statusline re-runs many times a minute, so a random pick would flicker
+  // on every keystroke. It must also not write anything to stay read-only.
+  it('picks the same line every time within a day', () => {
+    const first = idleLine();
+    for (let i = 0; i < 10; i++) expect(idleLine()).toBe(first);
+  });
+
+  it('is still one short line', () => {
+    for (const tone of TONES) {
+      const line = idleLine(tone);
+      expect(line).not.toContain('\n');
+      expect(line.length, `${tone}: "${line}"`).toBeLessThan(80);
+    }
   });
 });
 

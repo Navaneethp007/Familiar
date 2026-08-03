@@ -41,13 +41,15 @@ export interface StatusCardInput {
   state: CreatureState;
   events: readonly FamiliarEvent[];
   tone: ToneName;
+  /** Shown only when on — an off switch nobody flipped is not news. */
+  voice?: boolean;
   quip?: string;
   skippedLines?: number;
   now?: Date;
 }
 
 export function renderStatusCard(input: StatusCardInput): string {
-  const { state, events, tone, quip, skippedLines = 0 } = input;
+  const { state, events, tone, voice = false, quip, skippedLines = 0 } = input;
   const now = input.now ?? new Date();
   const form = formIdentity(state.species, state.stage, state.branch);
   const week = weeklyTotals(events, now);
@@ -99,6 +101,7 @@ export function renderStatusCard(input: StatusCardInput): string {
     `  all time  ${state.totals.commit} commits · ${state.totals.pr_merged} merged · ${state.eventCount} events`,
   );
   lines.push(`  tone      ${TONE_LABELS[tone]}`);
+  if (voice) lines.push('  voice     on');
 
   if (quip) {
     lines.push('');
