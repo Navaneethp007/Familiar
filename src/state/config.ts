@@ -9,6 +9,7 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { SPECIES, type Species } from '../core/species.js';
+import { COLOURS, type ColourName } from '../core/sprites/palettes.js';
 import { TONES, type ToneName } from '../core/tone.js';
 import { configPath, cursorPath, errorLogPath, renderCachePath } from './paths.js';
 import { ensureHome } from './log.js';
@@ -33,6 +34,15 @@ export interface FamiliarConfig {
    * for something that makes noise. Do not "helpfully" add a version bump.
    */
   voice: boolean;
+  /**
+   * The palette you picked, or null for your species' own.
+   *
+   * Validated on read like `species` and `tone`, *not* with the `=== true`
+   * shortcut `voice` uses. A bogus name here would resolve to a palette of
+   * `undefined`, and the web widget skips any character it cannot colour — so
+   * the failure mode is a completely invisible familiar and no error anywhere.
+   */
+  colour: ColourName | null;
 }
 
 export function defaultConfig(species: Species = 'sprout'): FamiliarConfig {
@@ -44,6 +54,7 @@ export function defaultConfig(species: Species = 'sprout'): FamiliarConfig {
     repos: [],
     claudeInstalled: false,
     voice: false,
+    colour: null,
   };
 }
 
@@ -81,6 +92,8 @@ export function readConfig(): FamiliarConfig | null {
     repos: Array.isArray(raw.repos) ? raw.repos.filter((r): r is string => typeof r === 'string') : [],
     claudeInstalled: raw.claudeInstalled === true,
     voice: raw.voice === true,
+    colour:
+      raw.colour && (COLOURS as readonly string[]).includes(raw.colour) ? raw.colour : null,
   };
 }
 

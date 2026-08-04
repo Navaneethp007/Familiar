@@ -49,6 +49,17 @@ export function errorLogPath(): string {
   return join(familiarHome(), 'error.log');
 }
 
+/**
+ * The Windows speaker script. Windows only, and only written when voice is on.
+ *
+ * It has to be a file because the only host that can speak from a detached
+ * process — wscript.exe — takes a script path rather than inline source. See
+ * the note in adapters/voice.ts for why PowerShell cannot do this job.
+ */
+export function speakScriptPath(): string {
+  return join(familiarHome(), 'speak.vbs');
+}
+
 export function backupPath(stamp: string): string {
   return join(familiarHome(), `settings-backup-${stamp}.json`);
 }

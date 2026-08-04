@@ -7,26 +7,16 @@
  * is what brings it up to date.
  */
 
-import { homedir } from 'node:os';
-import { dirname } from 'node:path';
-
-import {
-  commitDatesSince,
-  configuredEmail,
-  discoverRepos,
-  findRepoRoot,
-  headSha,
-  scanAll,
-} from './adapters/git.js';
+import { scanAll } from './adapters/git.js';
 import { formIdentity } from './core/forms.js';
-import { profileRhythm, selectSpecies, SPECIES_BLURBS, SPECIES_LABELS } from './core/species.js';
 import { blink, gridFor } from './core/sprites/grids.js';
-import { paletteFor } from './core/sprites/palettes.js';
+import { COLOURS, COLOUR_LABELS, paletteFor, type ColourName } from './core/sprites/palettes.js';
 import { TONES, TONE_LABELS, type ToneName } from './core/tone.js';
 import { deriveState } from './core/xp.js';
 import { drainShellLog } from './adapters/terminal.js';
 import { realVoiceEnv, speakAloud, voiceCommandFor } from './adapters/voice.js';
 import { runHook } from './hook.js';
+import { runInit } from './init-flow.js';
 import {
   installShell,
   shellStatus,
@@ -36,16 +26,8 @@ import {
   type ShellName,
 } from './shell/install.js';
 import { POLICY_FIX_COMMAND } from './shell/policy.js';
-import { cliEntrypoint, installClaudeIntegration, uninstallClaudeIntegration } from './install.js';
-import {
-  defaultConfig,
-  logError,
-  readConfig,
-  readOrCreateConfig,
-  writeConfig,
-  writeCursors,
-  type CursorFile,
-} from './state/config.js';
+import { cliEntrypoint, uninstallClaudeIntegration } from './install.js';
+import { logError, readConfig, readOrCreateConfig, writeConfig } from './state/config.js';
 import { appendEvents, ensureHome, readEventsDetailed } from './state/log.js';
 import { claudeSettingsPath, familiarHome } from './state/paths.js';
 import { blinkSprite } from './ui/animate.js';
@@ -71,100 +53,9 @@ function argValue(argv: string[], name: string): string | undefined {
 
 // --- init ------------------------------------------------------------------
 
-/**
- * Seeds a species from recent history.
- *
- * Reads *rhythm only* — how often and how evenly commits land — and never
- * awards a single point of XP. Per the design: history seeds personality, not
- * level. A creature that starts maxed has skipped the entire game.
- */
-function seedSpecies(cwd: string): { species: ReturnType<typeof selectSpecies>; repos: string[]; commits: number } {
-  const here = findRepoRoot(cwd);
-  const roots = [homedir(), cwd, dirname(cwd)];
-  if (here) roots.push(dirname(here));
-
-  const repos = discoverRepos(roots);
-  if (here && !repos.includes(here)) repos.push(here);
-
-  const email = configuredEmail(cwd);
-  const dates: Date[] = [];
-  for (const repo of repos) {
-    dates.push(...commitDatesSince(repo, SEED_WINDOW_DAYS, email));
-  }
-
-  const profile = profileRhythm(dates, SEED_WINDOW_DAYS);
-  return { species: selectSpecies(profile), repos, commits: dates.length };
-}
-
-function cmdInit(argv: string[]): void {
-  const force = argv.includes('--force');
-  const skipClaude = argv.includes('--no-claude');
-  const cwd = process.cwd();
-
-  ensureHome();
-
-  const existing = readConfig();
-  if (existing && !force) {
-    out('');
-    out('  Familiar is already initialised.');
-    out(`  Species: ${SPECIES_LABELS[existing.species]}  ·  tone: ${TONE_LABELS[existing.tone]}`);
-    out('  Re-run with --force to re-seed (this does not touch your event log).');
-    out('');
-    return;
-  }
-
-  out('');
-  out('  reading your recent git rhythm…');
-  const { species, repos, commits } = seedSpecies(cwd);
-
-  const config = existing ? { ...existing, species } : defaultConfig(species);
-  config.repos = repos;
-  writeConfig(config);
-
-  // Pin every discovered repo to its current HEAD. This is what stops the
-  // first real scan from replaying years of commits as XP.
-  const cursors: CursorFile = {};
-  const now = new Date().toISOString();
-  for (const repo of repos) {
-    cursors[repo] = { lastSha: headSha(repo), lastScan: now };
-  }
-  writeCursors(cursors);
-
-  out(`  found ${commits} commits across ${repos.length} repo(s) in the last ${SEED_WINDOW_DAYS} days`);
-  out('');
-  out(`  🥚  your familiar is a ${SPECIES_LABELS[species]} egg`);
-  out(`      ${SPECIES_BLURBS[species]}`);
-  out('');
-  out('  history seeded its personality, not its level — it starts at Lv.1 like everyone else.');
-  out('');
-
-  if (skipClaude) {
-    out('  skipped Claude Code wiring (--no-claude)');
-    out('');
-    return;
-  }
-
-  try {
-    const result = installClaudeIntegration({ force });
-    config.claudeInstalled = true;
-    writeConfig(config);
-
-    out(`  wired into ${result.settingsPath}`);
-    if (result.backup) out(`  backup saved to ${result.backup}`);
-    out(`  hooks: ${result.hooksAdded.join(', ')}`);
-    if (result.statusLineInstalled) {
-      out('  statusline: installed');
-    } else if (result.statusLineSkipped) {
-      out('  statusline: SKIPPED — you already have one. Re-run with --force to replace it.');
-    }
-    out('');
-    out('  restart Claude Code to see it.');
-  } catch (error) {
-    logError('init:install', error);
-    out(`  could not wire into Claude Code: ${(error as Error).message}`);
-    out('  everything else still works — the git adapter needs no setup.');
-  }
-  out('');
+/** The flow itself lives in init-flow.ts, where both paths through it are testable. */
+async function cmdInit(argv: string[]): Promise<void> {
+  await runInit({ argv, out });
 }
 
 // --- status ----------------------------------------------------------------
@@ -266,6 +157,50 @@ async function cmdShow(): Promise<void> {
   out('');
 }
 
+// --- colour ----------------------------------------------------------------
+
+/**
+ * The only thing about your familiar you get to choose.
+ *
+ * Species comes from your git rhythm and branch from your habits — both earned,
+ * neither picked. Colour is worth no XP and changes nothing but the look.
+ */
+function cmdColour(argv: string[]): void {
+  const config = readOrCreateConfig();
+  const requested = argv[0];
+
+  if (!requested) {
+    out('');
+    out(`  current colour: ${config.colour ? COLOUR_LABELS[config.colour] : 'your species’ own'}`);
+    out('');
+    for (const colour of COLOURS) {
+      out(`    ${colour === config.colour ? '●' : '○'} ${colour.padEnd(8)} ${COLOUR_LABELS[colour]}`);
+    }
+    out(`    ${config.colour === null ? '●' : '○'} ${'default'.padEnd(8)} whatever your species is`);
+    out('');
+    out('  usage: familiar colour <name|default>');
+    out('');
+    return;
+  }
+
+  if (requested === 'default') {
+    config.colour = null;
+    writeConfig(config);
+    out('  colour follows your species again');
+    return;
+  }
+
+  if (!(COLOURS as readonly string[]).includes(requested)) {
+    out(`  unknown colour "${requested}". options: ${COLOURS.join(', ')}, default`);
+    process.exitCode = 1;
+    return;
+  }
+
+  config.colour = requested as ColourName;
+  writeConfig(config);
+  out(`  colour set to ${COLOUR_LABELS[config.colour]}`);
+}
+
 // --- look ------------------------------------------------------------------
 
 async function cmdLook(argv: string[]): Promise<void> {
@@ -289,7 +224,10 @@ async function cmdLook(argv: string[]): Promise<void> {
   );
 
   const grid = gridFor(state.species, state.stage, state.branch);
-  const palette = tintPalette(paletteFor(state.species, state.branch), state.mood);
+  const palette = tintPalette(
+    paletteFor(state.species, state.branch, config.colour),
+    state.mood,
+  );
   const base = renderSprite({ grid, palette, caps });
 
   out('');
@@ -481,11 +419,13 @@ function cmdHelp(): void {
   out(`
   familiar — a companion that levels up on what you actually ship
 
-    familiar init [--force] [--no-claude]   seed a species, wire up Claude Code
+    familiar init [--force] [--quiet]       seed a species, wire up Claude Code
+                 [--no-claude]              (--quiet skips the questions)
     familiar status [--debug]               form, level, XP, habits, this week
     familiar look [--animate]               draw the sprite in your terminal
     familiar show                           open the pixel-art widget
     familiar tone [name]                    ${TONES.join(' · ')}
+    familiar colour [name]                  ${COLOURS.join(' · ')}
     familiar voice on|off|status            speak the big moments out loud
     familiar shell install|uninstall        count checks from your own terminal
     familiar uninstall                      remove hooks and statusline
@@ -523,7 +463,7 @@ async function main(): Promise<void> {
       cmdStatusline();
       return;
     case 'init':
-      cmdInit(rest);
+      await cmdInit(rest);
       return;
     case 'status':
       cmdStatus(rest);
@@ -536,6 +476,10 @@ async function main(): Promise<void> {
       return;
     case 'tone':
       cmdTone(rest);
+      return;
+    case 'colour':
+    case 'color':
+      cmdColour(rest);
       return;
     case 'voice':
       cmdVoice(rest);

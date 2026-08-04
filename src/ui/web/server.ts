@@ -19,7 +19,14 @@ import { formIdentity } from '../../core/forms.js';
 import { BRANCH_LABELS } from '../../core/habits.js';
 import { SPECIES_BLURBS, SPECIES_LABELS } from '../../core/species.js';
 import { blink, gridFor } from '../../core/sprites/grids.js';
-import { MOOD_TINTS, paletteFor } from '../../core/sprites/palettes.js';
+import {
+  COLOURS,
+  COLOUR_LABELS,
+  COLOUR_PALETTES,
+  MOOD_TINTS,
+  paletteFor,
+  type ColourName,
+} from '../../core/sprites/palettes.js';
 import { TONES, TONE_LABELS, type ToneName } from '../../core/tone.js';
 import { deriveState, weeklyTotals } from '../../core/xp.js';
 import { scanAll } from '../../adapters/git.js';
@@ -65,7 +72,7 @@ function buildPayload(): unknown {
     sprite: {
       grid,
       blink: blink(grid),
-      palette: paletteFor(state.species, state.branch),
+      palette: paletteFor(state.species, state.branch, config.colour),
       tint: MOOD_TINTS[state.mood],
     },
     level: state.level,
@@ -81,6 +88,13 @@ function buildPayload(): unknown {
     quip: freshQuip(),
     tone: config.tone,
     tones: TONES.map((t) => ({ id: t, label: TONE_LABELS[t] })),
+    colour: config.colour,
+    colours: COLOURS.map((c) => ({
+      id: c,
+      label: COLOUR_LABELS[c],
+      // The swatch shows the body stroke, which is what actually changes.
+      swatch: COLOUR_PALETTES[c]['2'],
+    })),
   };
 }
 
@@ -144,6 +158,35 @@ export function startWidget(options: ShowOptions = {}): Promise<RunningWidget> {
               return;
             }
             sendJson(res, 400, { ok: false, error: 'unknown tone' });
+          } catch {
+            sendJson(res, 400, { ok: false, error: 'bad request' });
+          }
+        });
+        return;
+      }
+
+      if (url.startsWith('/api/colour') && req.method === 'POST') {
+        lastPoll = Date.now();
+        void readBody(req).then((body) => {
+          try {
+            const parsed = JSON.parse(body || '{}') as { colour?: string | null };
+            const colour = parsed.colour;
+            // null is a legitimate value here — it means "follow my species".
+            if (colour === null || colour === 'default') {
+              const config = readOrCreateConfig();
+              config.colour = null;
+              writeConfig(config);
+              sendJson(res, 200, { ok: true, colour: null });
+              return;
+            }
+            if (colour && (COLOURS as readonly string[]).includes(colour)) {
+              const config = readOrCreateConfig();
+              config.colour = colour as ColourName;
+              writeConfig(config);
+              sendJson(res, 200, { ok: true, colour });
+              return;
+            }
+            sendJson(res, 400, { ok: false, error: 'unknown colour' });
           } catch {
             sendJson(res, 400, { ok: false, error: 'bad request' });
           }

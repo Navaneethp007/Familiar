@@ -14,7 +14,14 @@ import {
   SPRITE_SIZE,
   type Grid,
 } from '../src/core/sprites/grids.js';
-import { MOOD_TINTS, paletteFor, SPECIES_PALETTES } from '../src/core/sprites/palettes.js';
+import {
+  basePalette,
+  COLOURS,
+  COLOUR_PALETTES,
+  MOOD_TINTS,
+  paletteFor,
+  SPECIES_PALETTES,
+} from '../src/core/sprites/palettes.js';
 import type { Stage } from '../src/core/xp.js';
 
 const VALID_CHARS = /^[.0-7 ]+$/;
@@ -57,13 +64,29 @@ describe('gridFor', () => {
     }
   });
 
-  it('produces nine visually distinct final forms', () => {
+  it('produces twenty-one visually distinct final forms', () => {
     const seen = new Set<string>();
     for (const species of SPECIES) {
       for (const branch of BRANCHES) {
         // Shape plus palette is what makes a form distinct, so compare both.
         const grid = gridFor(species, 'final', branch).join('\n');
         const palette = JSON.stringify(paletteFor(species, branch));
+        seen.add(`${grid}::${palette}`);
+      }
+    }
+    expect(seen.size).toBe(SPECIES.length * BRANCHES.length);
+  });
+
+  // Under one shared colour all three species have identical non-accent
+  // palettes, so the only thing left to tell them apart is the grid. Still
+  // getting 21 therefore proves the 21 shapes are pairwise distinct — which is
+  // the silhouette requirement, enforced rather than asserted in prose.
+  it('keeps all twenty-one distinct even when every species shares a colour', () => {
+    const seen = new Set<string>();
+    for (const species of SPECIES) {
+      for (const branch of BRANCHES) {
+        const grid = gridFor(species, 'final', branch).join('\n');
+        const palette = JSON.stringify(paletteFor(species, branch, 'mono'));
         seen.add(`${grid}::${palette}`);
       }
     }
@@ -123,13 +146,58 @@ describe('palettes', () => {
     }
   });
 
+  // Stronger than it looks: pins every non-accent index rather than just '1',
+  // requires every accent index to move rather than just '4', and holds for a
+  // user-chosen colour as well as the species default.
   it('recolours the accent per branch and leaves the body alone', () => {
     for (const species of SPECIES) {
-      const base = SPECIES_PALETTES[species];
-      for (const branch of BRANCHES) {
-        const palette = paletteFor(species, branch);
-        expect(palette['1']).toBe(base['1']);
-        expect(palette['4']).not.toBe(base['4']);
+      for (const colour of [null, ...COLOURS]) {
+        const base = basePalette(species, colour);
+        for (const branch of BRANCHES) {
+          const palette = paletteFor(species, branch, colour);
+          for (const key of ['0', '1', '2', '3', '6'] as const) {
+            expect(palette[key], `${species}/${branch}/${colour}/${key}`).toBe(base[key]);
+          }
+          for (const key of ['4', '5', '7'] as const) {
+            expect(palette[key], `${species}/${branch}/${colour}/${key}`).not.toBe(base[key]);
+          }
+        }
+      }
+    }
+  });
+
+  it('leaves every existing familiar alone when no colour was chosen', () => {
+    for (const species of SPECIES) {
+      expect(basePalette(species, null)).toEqual(SPECIES_PALETTES[species]);
+      expect(paletteFor(species, null)).toEqual(SPECIES_PALETTES[species]);
+    }
+  });
+
+  // A palette of `undefined` renders an invisible creature: page.html skips any
+  // character it has no colour for, silently and with no error anywhere.
+  it('falls back to the species palette rather than resolving nothing', () => {
+    for (const bogus of ['chartreuse', '', 'MOSS ', 'default']) {
+      expect(basePalette('sprout', bogus as never), bogus).toEqual(SPECIES_PALETTES.sprout);
+    }
+  });
+
+  // blink() swaps 6 -> 1, so those two must actually look different. Equal
+  // values would leave the eye visibly open while every test still passed:
+  // the pixel count is unchanged and no '6' survives.
+  it('keeps the blinked eye distinguishable from the open one', () => {
+    for (const species of SPECIES) {
+      for (const colour of [null, ...COLOURS]) {
+        const palette = basePalette(species, colour);
+        expect(palette['1'], `${species}/${colour}`).not.toBe(palette['6']);
+      }
+    }
+  });
+
+  it('gives every named colour a full, valid palette', () => {
+    for (const colour of COLOURS) {
+      const palette = COLOUR_PALETTES[colour];
+      for (const key of ['0', '1', '2', '3', '4', '5', '6', '7'] as const) {
+        expect(palette[key], `${colour}/${key}`).toMatch(/^#[0-9a-f]{6}$/i);
       }
     }
   });

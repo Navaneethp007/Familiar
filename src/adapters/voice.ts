@@ -17,11 +17,13 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, renameSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 
 import type { SpeakKey } from '../core/tone.js';
 import { logError } from '../state/config.js';
+import { ensureHome } from '../state/log.js';
+import { speakScriptPath } from '../state/paths.js';
 
 /**
  * The four moments worth interrupting a room for.
@@ -65,6 +67,8 @@ export interface VoiceEnv {
   /** Directories from PATH, used to find spd-say without spawning anything. */
   pathDirs: readonly string[];
   exists: (path: string) => boolean;
+  /** Where the Windows speaker script lives. Unused elsewhere. */
+  scriptPath: string;
 }
 
 export interface VoiceCommand {
@@ -74,18 +78,42 @@ export interface VoiceCommand {
   env?: Record<string, string>;
 }
 
-/**
- * The PowerShell side, as a fixed literal.
- *
- * The text is passed through the environment rather than interpolated into this
- * string, so no input ever reaches PowerShell's parser and there is nothing to
- * escape. That is a stronger guarantee than quoting correctly, and it costs
- * nothing.
- */
-const WINDOWS_SCRIPT = '(New-Object -ComObject SAPI.SpVoice).Speak($env:FAMILIAR_SPEAK)';
-
-/** The env var the script above reads. */
+/** The env var the Windows script reads its line from. */
 export const SPEAK_ENV_VAR = 'FAMILIAR_SPEAK';
+
+/**
+ * The Windows speaker, as a script for `wscript.exe`.
+ *
+ * **Why not PowerShell.** Detaching a child on Windows passes DETACHED_PROCESS,
+ * which gives it no console at all — and `powershell.exe` is a console
+ * application, so with no console host it exits immediately, code 0, having run
+ * nothing. Measured: it dies at ~220ms without reaching its first statement.
+ * That made voice silently do nothing on every Windows machine.
+ *
+ * `wscript.exe` is a windowless host that needs no console, so the same
+ * fire-and-forget spawn genuinely survives. Speech is one of the few things
+ * that must outlive the process that asked for it, and this is the only way to
+ * get that without holding a hook open for the length of the sentence.
+ *
+ * The text still arrives through the environment rather than being interpolated
+ * here, so nothing a caller supplies is ever parsed as code.
+ */
+export const WINDOWS_SCRIPT = [
+  // Pure ASCII, deliberately: wscript reads a .vbs as ANSI, so anything outside
+  // it arrives as mojibake. Verified by a test rather than trusted.
+  "' Familiar - says one line, then exits. Written by `familiar voice on`.",
+  "' The text arrives in an environment variable, never inlined, so there is",
+  "' nothing here for a quoting mistake to escape from.",
+  'Option Explicit',
+  'Dim shell, line, voice',
+  'Set shell = CreateObject("WScript.Shell")',
+  `line = shell.Environment("PROCESS")("${SPEAK_ENV_VAR}")`,
+  'If Len(line) > 0 Then',
+  '  Set voice = CreateObject("SAPI.SpVoice")',
+  '  voice.Speak line',
+  'End If',
+  '',
+].join('\r\n');
 
 /**
  * Resolves how to speak on this machine. Null means "no voice here" — a silent
@@ -98,10 +126,10 @@ export function voiceCommandFor(text: string, env: VoiceEnv): VoiceCommand | nul
   switch (env.platform) {
     case 'win32':
       return {
-        // -NoProfile is a control, not a speed-up: a user profile can redefine
-        // New-Object.
-        command: 'powershell.exe',
-        args: ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_SCRIPT],
+        // //B suppresses every dialog, so a broken script can never block
+        // waiting for someone to click OK on a machine with no one watching.
+        command: 'wscript.exe',
+        args: ['//B', '//Nologo', env.scriptPath],
         env: { [SPEAK_ENV_VAR]: text },
       };
     case 'darwin':
@@ -123,7 +151,33 @@ export function realVoiceEnv(): VoiceEnv {
     platform: process.platform,
     pathDirs: (process.env['PATH'] ?? '').split(delimiter).filter((d) => d.length > 0),
     exists: existsSync,
+    scriptPath: speakScriptPath(),
   };
+}
+
+/**
+ * Makes sure the speaker script is on disk and current.
+ *
+ * Rewritten every time rather than only when missing: it is a couple of hundred
+ * bytes, and it means an edit to WINDOWS_SCRIPT takes effect on upgrade without
+ * anyone having to think about stale files.
+ */
+function ensureSpeakScript(path: string): boolean {
+  try {
+    ensureHome();
+    // Written via a temp file and renamed, because writeFileSync truncates
+    // first: a wscript still reading the previous utterance's copy — or a
+    // second hook speaking at the same time — would otherwise be handed a
+    // half-written script. rename is atomic on the same volume, so a reader
+    // sees either the old file or the new one and never something in between.
+    const temp = `${path}.tmp`;
+    writeFileSync(temp, WINDOWS_SCRIPT, 'utf8');
+    renameSync(temp, path);
+    return true;
+  } catch (error) {
+    logError('voice:script', error);
+    return false;
+  }
 }
 
 export interface SpeakDeps {
@@ -142,9 +196,14 @@ export interface SpeakDeps {
  */
 export function speakAloud(text: string, deps: SpeakDeps = {}): void {
   try {
+    const env = deps.env ?? realVoiceEnv();
     const utterance = sanitiseUtterance(text);
-    const command = voiceCommandFor(utterance, deps.env ?? realVoiceEnv());
+    const command = voiceCommandFor(utterance, env);
     if (!command) return;
+
+    // The Windows speaker is a file on disk rather than an inline argument,
+    // because wscript takes a script path. Write it before we need it.
+    if (env.platform === 'win32' && !ensureSpeakScript(env.scriptPath)) return;
 
     const child = (deps.spawnFn ?? spawn)(command.command, command.args, {
       detached: true,

@@ -26,6 +26,24 @@ node dist/cli.js init
 
 `init` scans ~60 days of your local git history to pick which of three species you get, then wires hooks and a statusline into `~/.claude/settings.json` (backing it up first, and merging rather than overwriting).
 
+Run in a terminal, it shows you the creature it just seeded, explains where XP actually comes
+from, and asks for a voice and a colour. Run from a script, a pipe, or with `CI` set, it asks
+nothing and prints what it always printed — `--quiet` forces that too.
+
+## The one thing you choose
+
+Species comes from your git rhythm. Branch comes from habits observed over fifteen levels.
+Both are earned, neither is picked — so colour is the one part of your familiar that is purely
+yours, and it is worth exactly zero XP.
+
+```bash
+familiar colour ice        # or moss, ember, wisp, rose, mono
+familiar colour default    # go back to your species' own
+```
+
+Leave it alone and nothing changes: an unset colour means "use my species'", which is what
+every familiar looked like before this existed.
+
 ## Commands
 
 | Command | What it does |
@@ -35,6 +53,7 @@ node dist/cli.js init
 | `familiar look` | Draw the sprite in your terminal (`--animate` to blink) |
 | `familiar show` | Open the pixel-art widget in your browser |
 | `familiar tone <name>` | `hype` · `deadpan` · `zen` · `gremlin` |
+| `familiar colour <name>` | `moss` · `ember` · `wisp` · `ice` · `rose` · `mono` |
 | `familiar voice on` | Speak the big moments out loud |
 | `familiar shell install` | Count checks from your own terminal |
 | `familiar uninstall` | Cleanly remove hooks + statusline |
@@ -44,6 +63,11 @@ node dist/cli.js init
 `familiar look` draws the same 16×16 sprite the widget uses, as half-block characters —
 16 columns by 8 rows, which comes out square because a terminal cell is about twice as
 tall as it is wide.
+
+The art is **monoline**: a closed 1px outline with nothing inside it. That is a deliberate fit
+for where it lives — a line drawing survives being folded two pixel-rows into one text row,
+where a filled shape just becomes a silhouette. It also means the three species have to differ
+by *shape* rather than by colour, now that colour is yours to pick.
 
 It adapts down rather than refusing: 24-bit colour where the terminal has it, the xterm-256
 palette where it doesn't, and a plain `█ ▀ ▄` silhouette with no escape codes at all when

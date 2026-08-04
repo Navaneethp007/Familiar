@@ -150,6 +150,28 @@
         cursor: pointer;
         transition: 0.15s;
       }
+      .swatches { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+      .swatches button {
+        width: 28px;
+        height: 28px;
+        border-radius: 7px;
+        border: 2px solid var(--line);
+        cursor: pointer;
+        padding: 0;
+        transition: 0.15s;
+      }
+      .swatches button:hover { transform: translateY(-1px); border-color: #3d4658; }
+      .swatches button[aria-pressed="true"] { border-color: var(--accent); }
+      .swatches button.auto {
+        width: auto;
+        padding: 0 10px;
+        background: var(--panel-2);
+        color: var(--dim);
+        font-size: 11px;
+        letter-spacing: 0.04em;
+      }
+      .swatches button.auto[aria-pressed="true"] { color: var(--text); }
+
       .tones button:hover { color: var(--text); border-color: #3d4658; }
       .tones button[aria-pressed="true"] {
         background: var(--accent);
@@ -189,6 +211,11 @@
       <section>
         <div class="label">tone</div>
         <div class="tones" id="tones"></div>
+      </section>
+
+      <section>
+        <div class="label">colour</div>
+        <div class="swatches" id="colours"></div>
       </section>
 
       <div class="offline" id="offline" hidden>familiar is no longer running — close this tab</div>
@@ -300,6 +327,41 @@
         }
       }
 
+      function renderColours(data) {
+        const host = document.getElementById('colours');
+        host.innerHTML = '';
+        const set = async (id) => {
+          await fetch('/api/colour', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ colour: id }),
+          });
+          refresh();
+        };
+
+        for (const colour of data.colours) {
+          const btn = document.createElement('button');
+          btn.className = 'swatch';
+          btn.style.background = colour.swatch;
+          btn.title = colour.label;
+          btn.setAttribute('aria-label', colour.label);
+          btn.setAttribute('aria-pressed', String(colour.id === data.colour));
+          btn.onclick = () => set(colour.id);
+          host.appendChild(btn);
+        }
+
+        // Null is a real choice, not the absence of one — it means "follow my
+        // species", which is what every familiar did before colour existed.
+        const auto = document.createElement('button');
+        auto.className = 'swatch auto';
+        auto.title = 'follow my species';
+        auto.setAttribute('aria-label', 'follow my species');
+        auto.textContent = 'auto';
+        auto.setAttribute('aria-pressed', String(data.colour === null));
+        auto.onclick = () => set(null);
+        host.appendChild(auto);
+      }
+
       function render(data) {
         current = data;
         paint();
@@ -323,6 +385,7 @@
         renderHabits(data);
         renderWeek(data);
         renderTones(data);
+        renderColours(data);
       }
 
       async function refresh() {

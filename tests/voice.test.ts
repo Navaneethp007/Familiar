@@ -7,14 +7,18 @@ import {
   SPEAK_ENV_VAR,
   voiceCommandFor,
   VOICE_KEYS,
+  WINDOWS_SCRIPT,
   type VoiceEnv,
 } from '../src/adapters/voice.js';
 import { useTempHome } from './helpers.js';
+
+const SCRIPT_PATH = 'C:\\Users\\x\\.familiar\\speak.vbs';
 
 const envFor = (platform: NodeJS.Platform, hasSpdSay = false): VoiceEnv => ({
   platform,
   pathDirs: ['/usr/bin', '/usr/local/bin'],
   exists: (path: string) => hasSpdSay && path.endsWith('spd-say'),
+  scriptPath: SCRIPT_PATH,
 });
 
 interface Recorded {
@@ -79,25 +83,48 @@ describe('sanitiseUtterance', () => {
 });
 
 describe('voiceCommandFor', () => {
-  it('keeps the spoken text out of the PowerShell script entirely', () => {
+  // Detaching a child on Windows leaves it with no console, and powershell.exe
+  // cannot run without one — it exits at ~220ms having executed nothing, which
+  // made voice silently do nothing on every Windows machine. wscript needs no
+  // console, so the same fire-and-forget spawn actually survives.
+  it('uses a console-less host on Windows, never powershell', () => {
     const command = voiceCommandFor('merged. it is done.', envFor('win32'));
-    expect(command?.command).toBe('powershell.exe');
-    expect(command?.args).toContain('-NoProfile');
-    expect(command?.args).toContain('-NonInteractive');
+    expect(command?.command).toBe('wscript.exe');
+    expect(command?.command).not.toBe('powershell.exe');
+    expect(command?.args).toContain('//B');
+    expect(command?.args).toContain(SCRIPT_PATH);
+  });
 
-    // The script is a fixed literal. Nothing the caller supplied reaches it, so
+  it('keeps the spoken text out of the script entirely', () => {
+    const command = voiceCommandFor('merged. it is done.', envFor('win32'));
+    // Only a path is passed; the line itself travels in the environment, so
     // there is no quoting layer that could be got wrong.
-    const script = command?.args[command.args.length - 1] ?? '';
-    expect(script).toContain('SAPI.SpVoice');
-    expect(script).toContain(`$env:${SPEAK_ENV_VAR}`);
-    expect(script).not.toContain('merged');
+    for (const arg of command?.args ?? []) {
+      expect(arg).not.toContain('merged');
+    }
     expect(command?.env?.[SPEAK_ENV_VAR]).toBe('merged. it is done.');
   });
 
-  it('keeps hostile text out of the script too', () => {
+  it('reads its line from the environment in the script itself', () => {
+    expect(WINDOWS_SCRIPT).toContain('SAPI.SpVoice');
+    expect(WINDOWS_SCRIPT).toContain(`("${SPEAK_ENV_VAR}")`);
+  });
+
+  // wscript reads a .vbs as ANSI, so a stray em-dash in a comment arrives as
+  // mojibake. Caught exactly that way the first time this was written.
+  it('is pure ASCII, because wscript does not read it as UTF-8', () => {
+    const offenders = [...WINDOWS_SCRIPT].filter((ch) => ch.charCodeAt(0) > 127);
+    expect(offenders, `non-ASCII: ${offenders.join(' ')}`).toEqual([]);
+  });
+
+  it('uses CRLF line endings, as a Windows script host expects', () => {
+    expect(WINDOWS_SCRIPT).toContain('\r\n');
+    expect(WINDOWS_SCRIPT.replace(/\r\n/g, '')).not.toContain('\n');
+  });
+
+  it('keeps hostile text out of the argument list', () => {
     const command = voiceCommandFor(`'); calc; ('`, envFor('win32'));
-    const script = command?.args[command.args.length - 1] ?? '';
-    expect(script).toBe('(New-Object -ComObject SAPI.SpVoice).Speak($env:FAMILIAR_SPEAK)');
+    expect(command?.args).toEqual(['//B', '//Nologo', SCRIPT_PATH]);
   });
 
   it('passes text as a single argument on macOS', () => {
