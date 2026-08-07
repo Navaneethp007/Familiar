@@ -25,6 +25,15 @@ export interface TermCaps {
   tier: ColorTier;
   /** Terminal height when known. Gates the animation, which moves the cursor. */
   rows: number | null;
+  /**
+   * Terminal width when known.
+   *
+   * Matters as much as height: a frame wider than the terminal soft-wraps, and
+   * a wrapped block occupies more physical rows than it has lines. Cursor-up by
+   * the line count then lands in the middle of the previous frame instead of
+   * above it, so the animation redraws through itself.
+   */
+  columns: number | null;
 }
 
 /**
@@ -51,8 +60,10 @@ export function detectCaps(
   isTTY: boolean,
   platform: NodeJS.Platform,
   rows?: number,
+  columns?: number,
 ): TermCaps {
   const height = typeof rows === 'number' && rows > 0 ? rows : null;
+  const width = typeof columns === 'number' && columns > 0 ? columns : null;
   const tier = ((): ColorTier => {
     if ('NO_COLOR' in env) return 'mono';
     const force = env['FORCE_COLOR'];
@@ -66,7 +77,23 @@ export function detectCaps(
     return 'ansi256';
   })();
 
-  return { tier, rows: height };
+  return { tier, rows: height, columns: width };
+}
+
+/**
+ * The visible width of a rendered frame, ignoring colour escapes.
+ *
+ * Measured from the frame rather than computed from the sprite size, for the
+ * same reason its height is: the two renderers produce different geometry, and
+ * anything deriving one from a constant will eventually disagree with what was
+ * actually drawn.
+ */
+export function frameWidth(frame: string): number {
+  let widest = 0;
+  for (const line of frame.split('\n')) {
+    widest = Math.max(widest, line.replace(/\x1b\[[0-9;]*m/g, '').length);
+  }
+  return widest;
 }
 
 // --- colour ----------------------------------------------------------------
@@ -248,6 +275,55 @@ export function renderSprite(input: SpriteRenderInput): string {
 
     // Close every row. A row that ends with a background still set can bleed
     // when the terminal scrolls or reflows.
+    lines.push(mono ? line : line + RESET);
+  }
+
+  return lines.join('\n');
+}
+
+/** How many text rows `renderSpriteFull` produces: one per pixel row. */
+export const SPRITE_FULL_ROWS = SPRITE_SIZE;
+
+/**
+ * Renders the grid at full resolution: one text row per pixel row.
+ *
+ * The half-block renderer above packs two pixel rows into one cell, which is
+ * compact but throws away half the vertical detail — and on monoline art, where
+ * every stroke is one pixel, that is exactly the detail the drawing is made of.
+ * Here each pixel is two spaces coloured by background instead, so nothing is
+ * merged and the result is pixel-identical to the widget. Two cells wide comes
+ * out roughly square, because a terminal cell is about twice as tall as it is
+ * wide.
+ *
+ * The cost is size: 32 columns by 16 rows rather than 16 by 8.
+ */
+export function renderSpriteFull(input: SpriteRenderInput): string {
+  const { grid, palette, caps } = input;
+  const margin = ' '.repeat(input.indent ?? 2);
+  const mono = caps.tier === 'mono';
+  const lines: string[] = [];
+
+  for (let y = 0; y < SPRITE_SIZE; y++) {
+    const row = grid[y] ?? '';
+    let line = margin;
+
+    for (let x = 0; x < SPRITE_SIZE; x++) {
+      const ch = row[x] ?? '.';
+      if (isTransparent(ch)) {
+        // Two spaces with the terminal's own background showing through.
+        line += mono ? '  ' : `${DEFAULT_BG}  `;
+      } else if (mono) {
+        // No colour to paint with, so the shape is carried by the glyph.
+        line += '██';
+      } else {
+        line += `${bg(palette[ch as PaletteKey], caps.tier)}  `;
+      }
+    }
+
+    // Trailing spaces are kept rather than trimmed, so both renderers produce
+    // the same shape for the same grid: every row is exactly as wide as the
+    // sprite. The half-block renderer above does the same, and a difference
+    // here would only ever surface as a confusing test failure.
     lines.push(mono ? line : line + RESET);
   }
 

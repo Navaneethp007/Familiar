@@ -60,9 +60,13 @@ every familiar looked like before this existed.
 
 ## Seeing it
 
-`familiar look` draws the same 16×16 sprite the widget uses, as half-block characters —
-16 columns by 8 rows, which comes out square because a terminal cell is about twice as
-tall as it is wide.
+`familiar look` draws the same 16×16 sprite the widget uses, at full resolution — one text
+row per pixel row, each pixel two characters wide, which comes out square because a terminal
+cell is about twice as tall as it is wide. What you see is pixel-identical to the browser.
+
+`--compact` halves it to 16×8 using half-block characters, packing two pixel rows into each
+cell. Smaller, but it averages away half the vertical detail, and on 1px strokes that is most
+of the drawing. It is used automatically in a terminal too short for the full version.
 
 The art is **monoline**: a closed 1px outline with nothing inside it. That is a deliberate fit
 for where it lives — a line drawing survives being folded two pixel-rows into one text row,

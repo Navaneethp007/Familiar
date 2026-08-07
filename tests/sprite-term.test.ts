@@ -7,9 +7,12 @@ import { paletteFor } from '../src/core/sprites/palettes.js';
 import {
   blend,
   detectCaps,
+  frameWidth,
   hexToRgb,
   nearest256,
   renderSprite,
+  renderSpriteFull,
+  SPRITE_FULL_ROWS,
   SPRITE_TEXT_ROWS,
   tintPalette,
   type ColorTier,
@@ -20,7 +23,7 @@ import type { Mood, Stage } from '../src/core/xp.js';
 const STAGES: Stage[] = ['egg', 'hatchling', 'final'];
 const SPROUT = paletteFor('sprout', null);
 
-const caps = (tier: ColorTier): TermCaps => ({ tier, rows: 40 });
+const caps = (tier: ColorTier): TermCaps => ({ tier, rows: 40, columns: 120 });
 
 /** A grid whose first two rows are given and whose rest is transparent. */
 function gridOf(top: string, bottom: string): Grid {
@@ -141,6 +144,51 @@ describe('colour tiers', () => {
   });
 });
 
+describe('renderSpriteFull', () => {
+  const grid = gridFor('sprout', 'final', 'night_owl');
+  const palette = paletteFor('sprout', 'night_owl');
+
+  // The whole point: one text row per pixel row, so nothing is averaged away.
+  it('gives every pixel row its own line', () => {
+    for (const tier of ['truecolor', 'ansi256', 'mono'] as const) {
+      const lines = renderSpriteFull({ grid, palette, caps: caps(tier) }).split('\n');
+      expect(lines.length, tier).toBe(SPRITE_FULL_ROWS);
+      expect(lines.length).toBe(SPRITE_SIZE);
+    }
+  });
+
+  it('is twice as wide as it is tall in cells, so pixels come out square', () => {
+    const line = renderSpriteFull({ grid, palette, caps: caps('truecolor'), indent: 0 }).split('\n')[0];
+    expect(stripped(line ?? '')).toHaveLength(SPRITE_SIZE * 2);
+  });
+
+  it('paints with backgrounds rather than glyphs', () => {
+    const out = renderSpriteFull({ grid, palette, caps: caps('truecolor') });
+    expect(out).toMatch(/\x1b\[48;2;\d+;\d+;\d+m/);
+    for (const glyph of ['▀', '▄', '█']) expect(out).not.toContain(glyph);
+  });
+
+  it('still draws a creature with no colour at all', () => {
+    const out = renderSpriteFull({ grid, palette, caps: caps('mono') });
+    expect(out).not.toContain('\x1b');
+    expect(out).toContain('██');
+  });
+
+  it('carries strictly more detail than the folded version', () => {
+    const full = renderSpriteFull({ grid, palette, caps: caps('mono') }).split('\n');
+    const folded = renderSprite({ grid, palette, caps: caps('mono') }).split('\n');
+    expect(full.length).toBeGreaterThan(folded.length);
+    // Distinct row patterns survive full-res that the fold merges together.
+    expect(new Set(full).size).toBeGreaterThan(new Set(folded).size);
+  });
+
+  it('is deterministic', () => {
+    const input = { grid, palette, caps: caps('truecolor') };
+    const first = renderSpriteFull(input);
+    for (let i = 0; i < 10; i++) expect(renderSpriteFull(input)).toBe(first);
+  });
+});
+
 describe('detectCaps', () => {
   it('honours NO_COLOR by presence, not by truthiness', () => {
     expect(detectCaps({ NO_COLOR: '' }, true, 'linux').tier).toBe('mono');
@@ -185,6 +233,42 @@ describe('detectCaps', () => {
     expect(detectCaps({}, true, 'linux', 40).rows).toBe(40);
     expect(detectCaps({}, true, 'linux', 0).rows).toBeNull();
     expect(detectCaps({}, true, 'linux').rows).toBeNull();
+  });
+
+  // Width matters as much as height: full-res is 34 columns against the fold's
+  // 18, so a narrow pane can be plenty tall and still wrap every line.
+  it('reports terminal width only when it is a usable number', () => {
+    expect(detectCaps({}, true, 'linux', 40, 120).columns).toBe(120);
+    expect(detectCaps({}, true, 'linux', 40, 0).columns).toBeNull();
+    expect(detectCaps({}, true, 'linux', 40).columns).toBeNull();
+  });
+});
+
+describe('frameWidth', () => {
+  const grid = gridFor('sprout', 'final', 'night_owl');
+  const palette = paletteFor('sprout', 'night_owl');
+
+  it('measures visible columns, not bytes', () => {
+    const coloured = renderSpriteFull({ grid, palette, caps: caps('truecolor') });
+    const plain = renderSpriteFull({ grid, palette, caps: caps('mono') });
+    // Wildly different byte counts, identical geometry.
+    expect(coloured.length).toBeGreaterThan(plain.length * 2);
+    expect(frameWidth(coloured)).toBe(frameWidth(plain));
+  });
+
+  // The numbers the fallback threshold depends on. If either renderer changes
+  // shape, this is what says so.
+  it('reports the geometry the fallback is choosing between', () => {
+    const full = renderSpriteFull({ grid, palette, caps: caps('truecolor') });
+    const folded = renderSprite({ grid, palette, caps: caps('truecolor') });
+
+    expect(frameWidth(full)).toBe(2 + SPRITE_SIZE * 2);
+    expect(frameWidth(folded)).toBe(2 + SPRITE_SIZE);
+    expect(frameWidth(full)).toBeGreaterThan(frameWidth(folded));
+  });
+
+  it('handles an empty frame without throwing', () => {
+    expect(frameWidth('')).toBe(0);
   });
 });
 

@@ -8,7 +8,6 @@
  */
 
 import { scanAll } from './adapters/git.js';
-import { formIdentity } from './core/forms.js';
 import { blink, gridFor } from './core/sprites/grids.js';
 import { COLOURS, COLOUR_LABELS, paletteFor, type ColourName } from './core/sprites/palettes.js';
 import { TONES, TONE_LABELS, type ToneName } from './core/tone.js';
@@ -31,12 +30,18 @@ import { logError, readConfig, readOrCreateConfig, writeConfig } from './state/c
 import { appendEvents, ensureHome, readEventsDetailed } from './state/log.js';
 import { claudeSettingsPath, familiarHome } from './state/paths.js';
 import { blinkSprite } from './ui/animate.js';
-import { detectCaps, renderIdentity, renderSprite, tintPalette } from './ui/sprite-term.js';
+import {
+  detectCaps,
+  frameWidth,
+  renderIdentity,
+  renderSprite,
+  renderSpriteFull,
+  SPRITE_FULL_ROWS,
+  tintPalette,
+} from './ui/sprite-term.js';
 import { renderStatusCard } from './ui/status-card.js';
 import { freshQuip, renderStatusline } from './ui/statusline.js';
 import { startWidget } from './ui/web/server.js';
-
-const SEED_WINDOW_DAYS = 60;
 
 function out(text: string): void {
   process.stdout.write(text + '\n');
@@ -221,6 +226,7 @@ async function cmdLook(argv: string[]): Promise<void> {
     Boolean(process.stdout.isTTY),
     process.platform,
     process.stdout.rows,
+    process.stdout.columns,
   );
 
   const grid = gridFor(state.species, state.stage, state.branch);
@@ -228,21 +234,48 @@ async function cmdLook(argv: string[]): Promise<void> {
     paletteFor(state.species, state.branch, config.colour),
     state.mood,
   );
-  const base = renderSprite({ grid, palette, caps });
+
+  // Full resolution by default: one text row per pixel row, so the terminal
+  // shows exactly what the widget does. The half-block fold is half the height
+  // but also half the vertical detail, which on 1px strokes is most of the
+  // drawing — so it is the fallback, not the default.
+  //
+  // Width is checked as well as height. Full-res is 34 columns against the
+  // fold's 18, so a narrow split pane can be plenty tall and still wrap every
+  // line — and a wrapped frame occupies more physical rows than it has lines,
+  // which is precisely what the animation cannot survive.
+  const tooShort = caps.rows !== null && caps.rows < SPRITE_FULL_ROWS + 8;
+  const tooNarrow =
+    caps.columns !== null && caps.columns < frameWidth(renderSpriteFull({ grid, palette, caps }));
+
+  const compact = argv.includes('--compact') || tooShort || tooNarrow;
+  const draw = (g: typeof grid): string =>
+    compact
+      ? renderSprite({ grid: g, palette, caps })
+      : renderSpriteFull({ grid: g, palette, caps });
+
+  const base = draw(grid);
 
   out('');
 
   // Piping `--animate` somewhere must produce one clean frame, not six frames of
   // escape soup, and a terminal too short to hold the sprite cannot be scrolled
   // back over.
+  // Both dimensions come from the frame that was actually drawn, so the gate
+  // cannot disagree with what is on screen. A frame that wraps is a frame the
+  // cursor arithmetic cannot reason about, so refuse to animate rather than
+  // redraw through the middle of the previous one.
+  const drawnRows = base.split('\n').length;
+  const drawnWidth = frameWidth(base);
   const canAnimate =
     argv.includes('--animate') &&
     caps.tier !== 'mono' &&
     Boolean(process.stdout.isTTY) &&
-    (caps.rows === null || caps.rows >= 12);
+    (caps.rows === null || caps.rows >= drawnRows + 4) &&
+    (caps.columns === null || caps.columns >= drawnWidth);
 
   if (canAnimate) {
-    await blinkSprite(base, renderSprite({ grid: blink(grid), palette, caps }));
+    await blinkSprite(base, draw(blink(grid)), { rows: drawnRows });
   } else {
     out(base);
   }
@@ -422,7 +455,7 @@ function cmdHelp(): void {
     familiar init [--force] [--quiet]       seed a species, wire up Claude Code
                  [--no-claude]              (--quiet skips the questions)
     familiar status [--debug]               form, level, XP, habits, this week
-    familiar look [--animate]               draw the sprite in your terminal
+    familiar look [--animate] [--compact]   draw the sprite in your terminal
     familiar show                           open the pixel-art widget
     familiar tone [name]                    ${TONES.join(' · ')}
     familiar colour [name]                  ${COLOURS.join(' · ')}
