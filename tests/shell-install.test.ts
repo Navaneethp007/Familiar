@@ -6,6 +6,7 @@ import {
   hasBlock,
   installShell,
   profilePathFor,
+  shellPresent,
   shellStatus,
   SHELLS,
   snippetFor,
@@ -71,18 +72,24 @@ beforeEach(() => {
   process.env['FAMILIAR_PROFILE_POWERSHELL'] = join(profileDir, 'profile.ps1');
   process.env['FAMILIAR_PROFILE_BASH'] = join(profileDir, '.bashrc');
   process.env['FAMILIAR_PROFILE_ZSH'] = join(profileDir, '.zshrc');
+  process.env['FAMILIAR_PROFILE_PWSH'] = join(profileDir, 'pwsh-profile.ps1');
 });
 
 afterEach(() => {
   delete process.env['FAMILIAR_PROFILE_POWERSHELL'];
   delete process.env['FAMILIAR_PROFILE_BASH'];
   delete process.env['FAMILIAR_PROFILE_ZSH'];
+  delete process.env['FAMILIAR_PROFILE_PWSH'];
   home.cleanup();
 });
 
 describe.each(SHELLS)('%s profile', (shell) => {
   const existing =
-    shell === 'powershell' ? EXISTING_PS : shell === 'zsh' ? EXISTING_ZSH : EXISTING_BASH;
+    shell === 'powershell' || shell === 'pwsh'
+      ? EXISTING_PS
+      : shell === 'zsh'
+        ? EXISTING_ZSH
+        : EXISTING_BASH;
 
   it('creates the profile when there is none', () => {
     const result = installShell(shell);
@@ -226,6 +233,75 @@ describe('whether the profile can actually load', () => {
     expect(count()).toBe(0);
   });
 
+  // PowerShell 7 keeps its execution policy separately from 5.1, so asking the
+  // wrong binary can give a confidently wrong answer about whether a profile
+  // will load.
+  it('asks each PowerShell about its own policy', () => {
+    const asked: string[] = [];
+    const probe: PolicyProbe = {
+      platform: 'win32',
+      env: {},
+      run: (command) => {
+        asked.push(command);
+        return 'RemoteSigned';
+      },
+    };
+    shellStatus('powershell', probe);
+    shellStatus('pwsh', probe);
+    expect(asked).toEqual(['powershell.exe', 'pwsh.exe']);
+  });
+
+  // PowerShell 7 is cross-platform and follows XDG outside Windows. Reusing the
+  // Windows path would recreate the very bug this split fixes, one axis over: a
+  // Mac user with pwsh gets "created" and a file pwsh never opens.
+  it('puts the PowerShell 7 profile where that platform actually looks', () => {
+    delete process.env['FAMILIAR_PROFILE_PWSH'];
+
+    const windows = profilePathFor('pwsh', 'win32');
+    expect(windows).toContain('Documents');
+    expect(windows).toContain('PowerShell');
+
+    for (const platform of ['darwin', 'linux'] as NodeJS.Platform[]) {
+      const path = profilePathFor('pwsh', platform);
+      expect(path, platform).toContain('.config');
+      expect(path, platform).toContain('powershell');
+      expect(path, platform).not.toContain('Documents');
+    }
+  });
+
+  // Documents\WindowsPowerShell is as fictional on a Mac as a PS7 profile is on
+  // a box without pwsh, and the gate exists to stop inventing either.
+  it('does not claim Windows PowerShell exists off Windows', () => {
+    const anywhere = { pathDirs: [], exists: () => false };
+    expect(shellPresent('powershell', { ...anywhere, platform: 'win32' })).toBe(true);
+    for (const platform of ['darwin', 'linux'] as NodeJS.Platform[]) {
+      expect(shellPresent('powershell', { ...anywhere, platform }), platform).toBe(false);
+    }
+    // Dotfiles stay unconditional: cheap, conventional, and cross-platform.
+    for (const platform of ['darwin', 'linux', 'win32'] as NodeJS.Platform[]) {
+      expect(shellPresent('bash', { ...anywhere, platform }), platform).toBe(true);
+      expect(shellPresent('zsh', { ...anywhere, platform }), platform).toBe(true);
+    }
+  });
+
+  it('gates PowerShell 7 on it actually being installed', () => {
+    const absent = { pathDirs: ['/usr/bin'], exists: () => false, platform: 'linux' as const };
+    const present = {
+      pathDirs: ['/usr/bin'],
+      exists: (p: string) => p.endsWith('pwsh'),
+      platform: 'linux' as const,
+    };
+    // No pwsh binary anywhere: a bulk install must not invent a PS7 profile.
+    expect(shellPresent('pwsh', absent)).toBe(false);
+    expect(shellPresent('pwsh', present)).toBe(true);
+    // Dotfiles stay unconditional. `powershell` deliberately does not: the
+    // probe above is on linux, where a Windows PowerShell profile is fiction.
+    for (const shell of ['bash', 'zsh'] as const) {
+      expect(shellPresent(shell, absent), shell).toBe(true);
+    }
+    expect(shellPresent('powershell', absent)).toBe(false);
+  });
+
   it('never probes off Windows', () => {
     installShell('powershell');
     const { probe, count } = countingProbe('Restricted', 'linux');
@@ -316,6 +392,19 @@ describe('the snippets themselves', () => {
 
   it('does not use PROMPT_COMMAND for zsh, which has no such thing', () => {
     expect(snippetFor('zsh')).not.toContain('PROMPT_COMMAND');
+  });
+
+  // The two PowerShells share a snippet but not a profile, and neither reads
+  // the other's. Writing only the 5.1 path left PS7 users with a success
+  // message and a file their shell never opens.
+  it('gives the two PowerShells the same snippet but different profiles', () => {
+    expect(snippetFor('pwsh')).toBe(snippetFor('powershell'));
+    delete process.env['FAMILIAR_PROFILE_PWSH'];
+    delete process.env['FAMILIAR_PROFILE_POWERSHELL'];
+    expect(profilePathFor('pwsh')).not.toBe(profilePathFor('powershell'));
+    expect(profilePathFor('powershell')).toContain('WindowsPowerShell');
+    expect(profilePathFor('pwsh')).toContain('PowerShell');
+    expect(profilePathFor('pwsh')).not.toContain('WindowsPowerShell');
   });
 
   it('gives each shell its own conventional profile path', () => {

@@ -17,7 +17,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 
 import { ensureHome } from '../state/log.js';
 import { profileBackupPath } from '../state/paths.js';
@@ -30,32 +30,86 @@ import {
 } from './policy.js';
 import { BLOCK_END, BLOCK_START, bashSnippet, powershellSnippet, zshSnippet } from './snippets.js';
 
-export const SHELLS = ['powershell', 'bash', 'zsh'] as const;
+export const SHELLS = ['powershell', 'pwsh', 'bash', 'zsh'] as const;
 export type ShellName = (typeof SHELLS)[number];
 
 export const SHELL_LABELS: Record<ShellName, string> = {
-  powershell: 'PowerShell',
+  powershell: 'Windows PowerShell',
+  pwsh: 'PowerShell 7',
   bash: 'bash',
   zsh: 'zsh',
 };
 
-export function profilePathFor(shell: ShellName): string {
+/** The two that share the PowerShell snippet and the execution-policy gate. */
+const POWERSHELLS: readonly ShellName[] = ['powershell', 'pwsh'];
+
+/** The binary whose execution policy governs each profile. */
+const POLICY_BINARY: Partial<Record<ShellName, string>> = {
+  powershell: 'powershell.exe',
+  pwsh: 'pwsh.exe',
+};
+
+export function profilePathFor(shell: ShellName, platform: NodeJS.Platform = process.platform): string {
   const override = process.env[`FAMILIAR_PROFILE_${shell.toUpperCase()}`];
   if (override) return override;
 
+  // The two PowerShells keep separate profiles, and neither reads the other's.
+  // Writing only the 5.1 path — as this used to — meant a PowerShell 7 user got
+  // a success message and a file their shell never opens.
   if (shell === 'powershell') {
-    // Windows PowerShell 5.1's profile location. PowerShell 7 uses
-    // "PowerShell" rather than "WindowsPowerShell"; both are handled by the
-    // env override above when someone needs the other one.
-    const documents = join(homedir(), 'Documents');
-    return join(documents, 'WindowsPowerShell', 'Microsoft.PowerShell_profile.ps1');
+    return join(homedir(), 'Documents', 'WindowsPowerShell', 'Microsoft.PowerShell_profile.ps1');
+  }
+  if (shell === 'pwsh') {
+    // PowerShell 7 is cross-platform and does *not* use Documents outside
+    // Windows — it follows XDG. Hardcoding the Windows path would have
+    // recreated the exact bug this split exists to fix, one axis over: a Mac
+    // user with pwsh gets "created" and a file pwsh never opens.
+    return platform === 'win32'
+      ? join(homedir(), 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1')
+      : join(homedir(), '.config', 'powershell', 'Microsoft.PowerShell_profile.ps1');
   }
   if (shell === 'zsh') return join(homedir(), '.zshrc');
   return join(homedir(), '.bashrc');
 }
 
+export interface ShellProbe {
+  pathDirs?: readonly string[];
+  exists?: (path: string) => boolean;
+  platform?: NodeJS.Platform;
+}
+
+/**
+ * Whether this shell is actually on the machine.
+ *
+ * `.bashrc` and `.zshrc` are always fair game: they are cheap, conventional
+ * files that cost nothing if the shell is never used, and they exist on every
+ * platform. The two PowerShells are not — a Windows PowerShell profile
+ * directory is as fictional on a Mac as a PowerShell 7 one is on a box without
+ * pwsh, and inventing either helps nobody.
+ *
+ * PowerShell 7 is tested by looking for the binary rather than for its profile
+ * directory. An earlier version checked whether the profile's parent directory
+ * existed, which is true of any override path pointing somewhere ordinary — so
+ * it answered "installed" on a machine with no PowerShell 7 at all. Scanning
+ * PATH is the approach `voice.ts` uses for spd-say, and it cannot be fooled by
+ * where the profile happens to live.
+ */
+export function shellPresent(shell: ShellName, probe: ShellProbe = {}): boolean {
+  const platform = probe.platform ?? process.platform;
+
+  if (shell === 'powershell') return platform === 'win32';
+  if (shell !== 'pwsh') return true;
+
+  const exists = probe.exists ?? existsSync;
+  const dirs =
+    probe.pathDirs ?? (process.env['PATH'] ?? '').split(delimiter).filter((d) => d.length > 0);
+  const binary = platform === 'win32' ? 'pwsh.exe' : 'pwsh';
+
+  return dirs.some((dir) => exists(join(dir, binary)));
+}
+
 export function snippetFor(shell: ShellName): string {
-  if (shell === 'powershell') return powershellSnippet();
+  if (POWERSHELLS.includes(shell)) return powershellSnippet();
   if (shell === 'zsh') return zshSnippet();
   return bashSnippet();
 }
@@ -88,7 +142,7 @@ function backupProfile(path: string, shell: ShellName): string | null {
   if (!existsSync(path)) return null;
   ensureHome();
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const suffix = shell === 'powershell' ? 'ps1' : 'sh';
+  const suffix = POWERSHELLS.includes(shell) ? 'ps1' : 'sh';
   const target = profileBackupPath(shell, `${stamp}.${suffix}`);
   copyFileSync(path, target);
   return target;
@@ -191,11 +245,11 @@ export function shellStatus(shell: ShellName, probe: PolicyProbe = realPolicyPro
   // .bashrc has no signing gate, and nor does any non-Windows shell, so there
   // is nothing to ask and no reason to pay for a subprocess. Asked at most once
   // — the probe is a process spawn, not a lookup.
-  if (shell !== 'powershell' || probe.platform !== 'win32') {
+  if (!POWERSHELLS.includes(shell) || probe.platform !== 'win32') {
     return { shell, profilePath, profileExists, installed, loadVerdict: 'ok', policy: null };
   }
 
-  const policy = persistentExecutionPolicy(probe);
+  const policy = persistentExecutionPolicy(probe, POLICY_BINARY[shell]);
   return {
     shell,
     profilePath,

@@ -96,7 +96,10 @@ export function realPolicyProbe(): PolicyProbe {
  * trip the very error it is trying to detect, and we would be reading the exit
  * status of our own diagnosis.
  */
-export function persistentExecutionPolicy(probe: PolicyProbe): string | null {
+export function persistentExecutionPolicy(
+  probe: PolicyProbe,
+  command = 'powershell.exe',
+): string | null {
   if (probe.platform !== 'win32') return null;
 
   // `realPolicyProbe` already swallows everything, but this is reached from
@@ -104,8 +107,11 @@ export function persistentExecutionPolicy(probe: PolicyProbe): string | null {
   // throws would take the whole command down over a cosmetic diagnostic.
   let output: string | null;
   try {
+    // Asked of the *same* binary the profile belongs to. Windows PowerShell and
+    // PowerShell 7 keep their policies in different places, so probing 5.1 to
+    // decide whether a 7 profile will load can give a confidently wrong answer.
     output = probe.run(
-      'powershell.exe',
+      command,
       ['-NoProfile', '-NonInteractive', '-Command', 'Get-ExecutionPolicy'],
       withoutProcessPolicy(probe.env),
     );
@@ -118,9 +124,9 @@ export function persistentExecutionPolicy(probe: PolicyProbe): string | null {
 }
 
 /** `ok` everywhere but Windows — no other platform has a signing gate on rc files. */
-export function profileLoadVerdict(probe: PolicyProbe): PolicyVerdict {
+export function profileLoadVerdict(probe: PolicyProbe, command?: string): PolicyVerdict {
   if (probe.platform !== 'win32') return 'ok';
-  return classifyPolicy(persistentExecutionPolicy(probe));
+  return classifyPolicy(persistentExecutionPolicy(probe, command));
 }
 
 /** The one-line fix, kept next to the detection so the two cannot drift. */

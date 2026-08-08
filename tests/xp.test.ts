@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { EVENT_TYPES } from '../src/core/events.js';
+import { EVENT_TYPES, type EventType } from '../src/core/events.js';
 import {
   deriveState,
   EVOLVE_LEVEL,
@@ -48,10 +48,27 @@ describe('the XP table', () => {
   });
 
   it('ranks outcomes above activity', () => {
-    expect(XP_TABLE.pr_merged).toBeGreaterThan(XP_TABLE.pr_opened);
-    expect(XP_TABLE.pr_opened).toBeGreaterThan(XP_TABLE.commit);
+    expect(XP_TABLE.pr_merged).toBeGreaterThan(XP_TABLE.commit);
     expect(XP_TABLE.commit).toBeGreaterThan(XP_TABLE.session_start);
     expect(XP_TABLE.session_start).toBeGreaterThan(XP_TABLE.tool_used);
+  });
+
+  // Every scored event type must be reachable. pr_opened used to sit here worth
+  // 15 XP with nothing able to emit it — a promise the engine could not keep,
+  // because knowing a PR was opened needs a forge API and nothing here talks to
+  // the network.
+  it('scores nothing that no adapter can produce', () => {
+    const emittable: EventType[] = [
+      'session_start',
+      'tool_used',
+      'commit',
+      'pr_merged',
+      'check_passed',
+      'check_failed',
+      'tests_passed',
+      'tests_failed',
+    ];
+    expect(Object.keys(XP_TABLE).sort()).toEqual([...emittable].sort());
   });
 });
 

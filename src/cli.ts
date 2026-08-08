@@ -18,6 +18,7 @@ import { runHook } from './hook.js';
 import { runInit } from './init-flow.js';
 import {
   installShell,
+  shellPresent,
   shellStatus,
   SHELL_LABELS,
   SHELLS,
@@ -350,18 +351,34 @@ function cmdShell(argv: string[]): void {
     return;
   }
 
-  const targets: ShellName[] = requested ? [requested as ShellName] : [...SHELLS];
+  // Naming a shell always targets exactly that one. Otherwise the two verbs
+  // want different sets, and using one list for both is a bug:
+  //
+  //   install   — skip shells that are not on this machine, so a 5.1-only box
+  //               does not get a PowerShell 7 profile invented for it.
+  //   uninstall — sweep everything. A shell being absent *now* is exactly when
+  //               a block left in its profile would otherwise stay there
+  //               forever, with a bulk uninstall reporting success.
+  const named = requested ? [requested as ShellName] : null;
+  const installTargets: ShellName[] = named ?? SHELLS.filter((s) => shellPresent(s));
+  const uninstallTargets: ShellName[] = named ?? [...SHELLS];
+
+  // Derived from the longest label so adding a shell cannot misalign anything —
+  // "Windows PowerShell" already overflowed the old fixed width, and the two
+  // backup lines were hardcoded to it in two more places.
+  const width = Math.max(...SHELLS.map((s) => SHELL_LABELS[s].length));
+  const indent = ' '.repeat(width + 4);
 
   if (action === 'status') {
     out('');
     for (const shell of SHELLS) {
       const status = shellStatus(shell);
-      out(`  ${SHELL_LABELS[shell].padEnd(11)} ${status.installed ? 'installed' : 'not installed'}`);
-      out(`              ${status.profilePath}`);
+      out(`  ${SHELL_LABELS[shell].padEnd(width)}  ${status.installed ? 'installed' : 'not installed'}`);
+      out(`${indent}${status.profilePath}`);
       // "installed" only ever meant "the block is in the file". Saying so and
       // stopping there is what let this look healthy while doing nothing.
       if (status.installed && status.loadVerdict === 'blocked') {
-        out(`              ⚠ cannot load — execution policy is ${status.policy}`);
+        out(`${indent}⚠ cannot load — execution policy is ${status.policy}`);
       }
     }
     out('');
@@ -374,12 +391,12 @@ function cmdShell(argv: string[]): void {
     ensureHome();
     out('');
     let blocked: string | null = null;
-    for (const shell of targets) {
+    for (const shell of installTargets) {
       try {
         const result = installShell(shell);
         const verb = result.replaced ? 'updated' : result.created ? 'created' : 'added to';
         out(`  ${SHELL_LABELS[shell]}: ${verb} ${result.profilePath}`);
-        if (result.backup) out(`              backup: ${result.backup}`);
+        if (result.backup) out(`${indent}backup: ${result.backup}`);
 
         const status = shellStatus(shell);
         if (status.loadVerdict === 'blocked') blocked = status.policy;
@@ -413,7 +430,7 @@ function cmdShell(argv: string[]): void {
 
   if (action === 'uninstall') {
     out('');
-    for (const shell of targets) {
+    for (const shell of uninstallTargets) {
       try {
         const result = uninstallShell(shell);
         out(
@@ -421,7 +438,7 @@ function cmdShell(argv: string[]): void {
             ? `  ${SHELL_LABELS[shell]}: removed from ${result.profilePath}`
             : `  ${SHELL_LABELS[shell]}: nothing to remove`,
         );
-        if (result.backup) out(`              backup: ${result.backup}`);
+        if (result.backup) out(`${indent}backup: ${result.backup}`);
       } catch (error) {
         logError(`shell:uninstall:${shell}`, error);
         out(`  ${SHELL_LABELS[shell]}: failed — ${(error as Error).message}`);

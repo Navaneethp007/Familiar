@@ -7,7 +7,6 @@ export const EVENT_TYPES = [
   'session_start',
   'tool_used',
   'commit',
-  'pr_opened',
   'pr_merged',
   // Check observations. Both are worth 0 XP on their own — the reward comes
   // from a red->green transition, which only the engine can see. See checks.ts.
@@ -18,6 +17,24 @@ export const EVENT_TYPES = [
   'tests_passed',
   'tests_failed',
 ] as const;
+
+/**
+ * The rule this list follows, stated once so it cannot be read two ways.
+ *
+ * **A type that has ever been written to a log is permanent.** `isEventType`
+ * gates what `readEvents` will accept, so dropping a member silently discards
+ * those lines: XP disappears and a level can go backwards. That is why
+ * `tests_passed` / `tests_failed` remain above long after nothing emits them.
+ *
+ * A type that was never emitted by any adapter is a different thing — it is
+ * vocabulary that was declared and never used, and removing it costs nobody
+ * anything. `pr_opened` was exactly that: scored at 15 XP, given lines in all
+ * four tone banks, and unreachable, because knowing a PR was opened needs a
+ * forge API and nothing here touches the network. Verified before removing it
+ * that no adapter had ever produced one, in any revision.
+ *
+ * So: append freely, remove only what provably never existed on disk.
+ */
 
 export type EventType = (typeof EVENT_TYPES)[number];
 

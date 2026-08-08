@@ -96,9 +96,14 @@ terminal, Claude Code, Cursor, a VS Code task.
 
 | shell | profile | how it hooks |
 |---|---|---|
-| PowerShell | `Microsoft.PowerShell_profile.ps1` | wraps `prompt` |
+| Windows PowerShell | `Documents\WindowsPowerShell\…` | wraps `prompt` |
+| PowerShell 7 | `Documents\PowerShell\…` | wraps `prompt` |
 | bash | `~/.bashrc` | prepends to `PROMPT_COMMAND` |
 | zsh | `~/.zshrc` | `preexec` + `precmd` hooks |
+
+The two PowerShells keep separate profiles and neither reads the other's, so they are
+installed separately. `familiar shell install` only writes the PowerShell 7 profile if `pwsh`
+is actually on your PATH — name it explicitly (`familiar shell install pwsh`) to override that.
 
 `cmd.exe` is **not** supported — it has no per-command hook to attach to. If cmd is your shell,
 commits and merged PRs still count, and so do checks Claude Code runs, but your own test runs

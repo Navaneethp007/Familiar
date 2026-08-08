@@ -25,7 +25,6 @@ export const XP_TABLE: Record<EventType, number> = {
   tool_used: 0,
   session_start: 1,
   commit: 5,
-  pr_opened: 15,
   pr_merged: 40,
   // Check observations are worth nothing on their own. A passing suite is not
   // an achievement — a suite that *started* passing is. That transition is
@@ -125,12 +124,7 @@ function deriveMood(events: readonly FamiliarEvent[], now: number): Mood {
   for (let i = recent.length - 1; i >= 0; i--) {
     const type = recent[i]?.type;
     if (type === 'check_failed' || type === 'tests_failed') return 'alarmed';
-    if (
-      type === 'pr_merged' ||
-      type === 'pr_opened' ||
-      type === 'check_passed' ||
-      type === 'tests_passed'
-    ) {
+    if (type === 'pr_merged' || type === 'check_passed' || type === 'tests_passed') {
       return 'happy';
     }
   }
@@ -142,7 +136,6 @@ function emptyTotals(): Record<EventType, number> {
     session_start: 0,
     tool_used: 0,
     commit: 0,
-    pr_opened: 0,
     pr_merged: 0,
     check_passed: 0,
     check_failed: 0,

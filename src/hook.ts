@@ -96,11 +96,8 @@ export function chooseSpeakKey(
     }
   }
 
-  const priority: SpeakKey[] = ['pr_merged', 'pr_opened'];
-  for (const key of priority) {
-    const match = fresh.find((e) => e.type === key);
-    if (match) return { key, seed: match.key };
-  }
+  const merged = fresh.find((e) => e.type === 'pr_merged');
+  if (merged) return { key: 'pr_merged', seed: merged.key };
 
   const broke = fresh.find((e) => e.type === 'check_failed' || e.type === 'tests_failed');
   if (broke) return { key: 'check_broke', seed: broke.key };
