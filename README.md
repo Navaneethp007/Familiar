@@ -90,7 +90,19 @@ is silently quiet; `familiar voice status` will tell you if that's what's happen
 
 ## Counting what you fix
 
-`familiar shell install` adds a small block to your PowerShell profile and `.bashrc`. After that, every test, build, typecheck and lint run counts — **whoever runs it**: you in your terminal, Claude Code, Cursor, a VS Code task.
+`familiar shell install` adds a small block to your PowerShell profile, `.bashrc` and `.zshrc`.
+After that, every test, build, typecheck and lint run counts — **whoever runs it**: you in your
+terminal, Claude Code, Cursor, a VS Code task.
+
+| shell | profile | how it hooks |
+|---|---|---|
+| PowerShell | `Microsoft.PowerShell_profile.ps1` | wraps `prompt` |
+| bash | `~/.bashrc` | prepends to `PROMPT_COMMAND` |
+| zsh | `~/.zshrc` | `preexec` + `precmd` hooks |
+
+`cmd.exe` is **not** supported — it has no per-command hook to attach to. If cmd is your shell,
+commits and merged PRs still count, and so do checks Claude Code runs, but your own test runs
+won't be seen.
 
 The block appends one line to a spool file using a shell builtin. It launches no program, so it costs nothing on every prompt, and it never touches your exit code. It only records check-shaped commands — not a second copy of your shell history, and never anything you paste on a command line. Remove it with `familiar shell uninstall`; your profile is backed up first either way.
 

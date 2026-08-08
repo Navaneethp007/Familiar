@@ -1,9 +1,10 @@
 {
-  "name": "@nvp/familiar",
+  "name": "@navaneeth.prabha/familiar",
   "version": "0.1.0",
-  "description": "A local-first companion creature that evolves based on your real dev outcomes.",
+  "description": "A local-first companion creature that levels up on what you actually fix. Reads your git history and check outcomes; nothing leaves your machine.",
   "type": "module",
   "license": "MIT",
+  "author": "Navaneeth Prabha",
   "bin": {
     "familiar": "dist/cli.js",
     "fam": "dist/cli.js"
@@ -11,13 +12,35 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Navaneethp007/Familiar.git"
+  },
+  "homepage": "https://github.com/Navaneethp007/Familiar#readme",
+  "bugs": {
+    "url": "https://github.com/Navaneethp007/Familiar/issues"
+  },
+  "keywords": [
+    "cli",
+    "git",
+    "productivity",
+    "claude-code",
+    "terminal",
+    "pixel-art",
+    "local-first",
+    "gamification"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
     "watch": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "familiar": "node dist/cli.js"
+    "familiar": "node dist/cli.js",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "engines": {
     "node": ">=18"

@@ -341,10 +341,16 @@ function cmdVoice(argv: string[]): void {
 function cmdShell(argv: string[]): void {
   const action = argv[0] ?? 'status';
   const requested = argv[1];
-  const targets: ShellName[] =
-    requested && (SHELLS as readonly string[]).includes(requested)
-      ? [requested as ShellName]
-      : [...SHELLS];
+
+  // Naming a shell we do not know used to fall through to "all of them", so
+  // `familiar shell install fish` quietly rewrote three unrelated profiles.
+  if (requested && !(SHELLS as readonly string[]).includes(requested)) {
+    out(`  unknown shell "${requested}". options: ${SHELLS.join(', ')}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const targets: ShellName[] = requested ? [requested as ShellName] : [...SHELLS];
 
   if (action === 'status') {
     out('');
@@ -359,7 +365,7 @@ function cmdShell(argv: string[]): void {
       }
     }
     out('');
-    out('  usage: familiar shell install|uninstall [powershell|bash]');
+    out(`  usage: familiar shell install|uninstall [${SHELLS.join('|')}]`);
     out('');
     return;
   }

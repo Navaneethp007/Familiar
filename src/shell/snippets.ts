@@ -171,3 +171,85 @@ case "\${PROMPT_COMMAND:-}" in
 esac
 ${BLOCK_END}`;
 }
+
+/**
+ * zsh — macOS's default shell since 2019, and therefore most Macs.
+ *
+ * Not a copy of the bash block with a different filename. zsh has real hooks:
+ * `preexec` is handed the command line as an argument before it runs, and
+ * `precmd` runs afterwards where `$?` is still the command's own status. So
+ * there is no `history` output to parse, no leading-digits arithmetic, and no
+ * bare-Enter guard — the three fiddliest parts of the bash version simply do
+ * not exist here.
+ */
+export function zshSnippet(): string {
+  return `${BLOCK_START}
+# Familiar — records check outcomes so your creature can see what you fixed.
+# Remove with: familiar shell uninstall
+__familiar_log() {
+  emulate -L zsh
+  local __code="$1"; shift
+  local __cmd="$*"
+  case "$__cmd" in
+    *--watch*|*nodemon*) return 0 ;;
+  esac
+  case "$__cmd" in
+    ${BASH_GLOB}) ;;
+    *) return 0 ;;
+  esac
+  local __home="\${FAMILIAR_HOME:-$HOME/.familiar}"
+  __home="\${__home//\\\\//}"
+  [ -d "$__home" ] || return 0
+  local __agent='-'
+  [ -n "\${CLAUDECODE:-}" ] && __agent='claude-code'
+  [ -n "\${CURSOR_TRACE_ID:-}" ] && __agent='cursor'
+  __cmd="\${__cmd//[$'\\t\\r\\n']/ }"
+  # Same reasoning as bash: two identical commands inside one second would
+  # dedupe into a single event and undercount how many attempts a fix took.
+  # EPOCHREALTIME needs the datetime module, which is why it is loaded above.
+  local __ts
+  if [ -n "\${EPOCHREALTIME:-}" ]; then
+    __ts="\${EPOCHREALTIME/[.,]/}"
+    __ts="\${__ts:0:13}"
+  else
+    __ts="$(( $(date +%s) * 1000 ))"
+  fi
+  printf '%s\\t%s\\t%s\\t%s\\t%s\\n' \\
+    "$__ts" "$__code" "$__agent" "$PWD" "$__cmd" \\
+    >> "$__home/shell.log" 2>/dev/null
+  return 0
+}
+
+# Handed the command line directly — no history parsing at all.
+__familiar_preexec() {
+  __FAMILIAR_CMD="$1"
+}
+
+__familiar_precmd() {
+  # Captured first and returned last, so nothing downstream sees a status this
+  # block invented.
+  local __code=$?
+  if [ -n "\${__FAMILIAR_CMD:-}" ]; then
+    __familiar_log "$__code" "$__FAMILIAR_CMD" 2>/dev/null
+    __FAMILIAR_CMD=''
+  fi
+  return $__code
+}
+
+if [ -z "\${__FAMILIAR_ZSH_INSTALLED:-}" ]; then
+  __FAMILIAR_ZSH_INSTALLED=1
+  zmodload zsh/datetime 2>/dev/null
+  # Appended directly rather than through add-zsh-hook, which is all that
+  # function does anyway. Guarding it with "is add-zsh-hook available?" does not
+  # work: autoload installs a stub whether or not the definition file is on
+  # fpath, so the check always passes and the fallback it guards is unreachable
+  # -- and on a system that genuinely lacks it, calling the stub prints
+  # "function definition file not found" at every shell start. Doing it by hand
+  # cannot fail, and the guard above already covers the re-sourcing that
+  # add-zsh-hook deduplication would have handled.
+  typeset -ga preexec_functions precmd_functions
+  preexec_functions+=(__familiar_preexec)
+  precmd_functions+=(__familiar_precmd)
+fi
+${BLOCK_END}`;
+}

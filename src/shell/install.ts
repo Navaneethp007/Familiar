@@ -28,14 +28,15 @@ import {
   type PolicyProbe,
   type PolicyVerdict,
 } from './policy.js';
-import { BLOCK_END, BLOCK_START, bashSnippet, powershellSnippet } from './snippets.js';
+import { BLOCK_END, BLOCK_START, bashSnippet, powershellSnippet, zshSnippet } from './snippets.js';
 
-export const SHELLS = ['powershell', 'bash'] as const;
+export const SHELLS = ['powershell', 'bash', 'zsh'] as const;
 export type ShellName = (typeof SHELLS)[number];
 
 export const SHELL_LABELS: Record<ShellName, string> = {
   powershell: 'PowerShell',
   bash: 'bash',
+  zsh: 'zsh',
 };
 
 export function profilePathFor(shell: ShellName): string {
@@ -49,11 +50,14 @@ export function profilePathFor(shell: ShellName): string {
     const documents = join(homedir(), 'Documents');
     return join(documents, 'WindowsPowerShell', 'Microsoft.PowerShell_profile.ps1');
   }
+  if (shell === 'zsh') return join(homedir(), '.zshrc');
   return join(homedir(), '.bashrc');
 }
 
 export function snippetFor(shell: ShellName): string {
-  return shell === 'powershell' ? powershellSnippet() : bashSnippet();
+  if (shell === 'powershell') return powershellSnippet();
+  if (shell === 'zsh') return zshSnippet();
+  return bashSnippet();
 }
 
 /** Matches our block wherever it sits, so uninstall never guesses at line numbers. */

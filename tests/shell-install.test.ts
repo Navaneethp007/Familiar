@@ -56,6 +56,11 @@ const EXISTING_BASH = `export PATH="$HOME/bin:$PATH"
 alias ll='ls -la'
 `;
 
+const EXISTING_ZSH = `export PATH="$HOME/bin:$PATH"
+autoload -Uz compinit && compinit
+alias ll='ls -la'
+`;
+
 function profileFor(shell: ShellName): string {
   return profilePathFor(shell);
 }
@@ -65,16 +70,19 @@ beforeEach(() => {
   profileDir = tempDir('familiar-profile-');
   process.env['FAMILIAR_PROFILE_POWERSHELL'] = join(profileDir, 'profile.ps1');
   process.env['FAMILIAR_PROFILE_BASH'] = join(profileDir, '.bashrc');
+  process.env['FAMILIAR_PROFILE_ZSH'] = join(profileDir, '.zshrc');
 });
 
 afterEach(() => {
   delete process.env['FAMILIAR_PROFILE_POWERSHELL'];
   delete process.env['FAMILIAR_PROFILE_BASH'];
+  delete process.env['FAMILIAR_PROFILE_ZSH'];
   home.cleanup();
 });
 
 describe.each(SHELLS)('%s profile', (shell) => {
-  const existing = shell === 'powershell' ? EXISTING_PS : EXISTING_BASH;
+  const existing =
+    shell === 'powershell' ? EXISTING_PS : shell === 'zsh' ? EXISTING_ZSH : EXISTING_BASH;
 
   it('creates the profile when there is none', () => {
     const result = installShell(shell);
@@ -263,6 +271,58 @@ describe('the snippets themselves', () => {
 
   it('bash refuses to install itself twice into PROMPT_COMMAND', () => {
     expect(snippetFor('bash')).toContain('*__familiar_report*');
+  });
+
+  // zsh is not bash with a different filename. It has real hooks, so none of
+  // bash's history parsing should have been copied across.
+  it('zsh takes the command from preexec rather than parsing history', () => {
+    const snippet = snippetFor('zsh');
+    expect(snippet).toContain('__familiar_preexec');
+    expect(snippet).toContain('__FAMILIAR_CMD="$1"');
+    expect(snippet).not.toContain('HISTTIMEFORMAT');
+    expect(snippet).not.toContain('history 1');
+  });
+
+  // add-zsh-hook is deliberately not used: `autoload` installs a stub whether
+  // or not the definition file exists, so any "is it available?" check passes
+  // unconditionally and the fallback it guards is unreachable. Appending to the
+  // arrays is what add-zsh-hook does anyway, and it cannot fail.
+  it('zsh registers its hooks without depending on add-zsh-hook', () => {
+    const snippet = snippetFor('zsh');
+    expect(snippet).toContain('preexec_functions+=(__familiar_preexec)');
+    expect(snippet).toContain('precmd_functions+=(__familiar_precmd)');
+    expect(snippet).toContain('typeset -ga preexec_functions precmd_functions');
+    // The comment above the registration explains why add-zsh-hook is avoided,
+    // so match on it being *called* rather than merely mentioned.
+    expect(snippet).not.toMatch(/^\s*add-zsh-hook\s/m);
+    expect(snippet).not.toContain('autoload -Uz add-zsh-hook');
+  });
+
+  it('zsh guards against re-sourcing so hooks cannot double up', () => {
+    expect(snippetFor('zsh')).toContain('__FAMILIAR_ZSH_INSTALLED');
+  });
+
+  it('zsh loads the module its millisecond timestamps depend on', () => {
+    // Without zsh/datetime there is no EPOCHREALTIME, and two identical
+    // commands in the same second would dedupe into one event.
+    expect(snippetFor('zsh')).toContain('zmodload zsh/datetime');
+  });
+
+  it('zsh returns the exit code it captured', () => {
+    const snippet = snippetFor('zsh');
+    expect(snippet).toContain('local __code=$?');
+    expect(snippet).toContain('return $__code');
+  });
+
+  it('does not use PROMPT_COMMAND for zsh, which has no such thing', () => {
+    expect(snippetFor('zsh')).not.toContain('PROMPT_COMMAND');
+  });
+
+  it('gives each shell its own conventional profile path', () => {
+    expect(profilePathFor('zsh')).toBe(join(profileDir, '.zshrc'));
+    delete process.env['FAMILIAR_PROFILE_ZSH'];
+    expect(profilePathFor('zsh').endsWith('.zshrc')).toBe(true);
+    expect(profilePathFor('zsh')).not.toBe(profilePathFor('bash'));
   });
 
   it('powershell guards against re-sourcing the profile', () => {

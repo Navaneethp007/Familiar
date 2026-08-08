@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { eventsFromSpool } from '../src/adapters/terminal.js';
 import { foldChecks, summariseChecks } from '../src/core/checks.js';
-import { bashSnippet, powershellSnippet } from '../src/shell/snippets.js';
+import { bashSnippet, powershellSnippet, zshSnippet } from '../src/shell/snippets.js';
 
 let home: string;
 let work: string;
@@ -68,6 +68,7 @@ function findBash(): string | null {
 
 const BASH = findBash();
 const POWERSHELL = which('powershell') ?? which('pwsh');
+const ZSH = which('zsh');
 
 function spool(): string {
   const path = join(home, 'shell.log');
@@ -308,5 +309,89 @@ describe.runIf(POWERSHELL)('powershell', () => {
         { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 },
       ),
     ).not.toThrow();
+  });
+});
+
+/**
+ * zsh, where it exists.
+ *
+ * Skipped on machines without zsh — which includes this project's usual
+ * Windows dev box — so the unit tests in shell-install.test.ts are the only
+ * thing guarding the snippet there. On a Mac, where zsh is the default shell
+ * and therefore where this code actually matters, these run.
+ *
+ * `zsh -n` is the valuable one: it parses the whole snippet without executing
+ * it, so a syntax error cannot reach a user's .zshrc. preexec/precmd only fire
+ * for an interactive shell, so the logging function is driven directly here,
+ * the same way the PowerShell suite above does it.
+ */
+describe.runIf(ZSH)('zsh', () => {
+  function writeRc(extra = ''): string {
+    const work = mkdtempSync(join(tmpdir(), 'familiar-zsh-'));
+    const path = join(work, 'rc.zsh');
+    writeFileSync(path, `${zshSnippet()}\n${extra}\n`, 'utf8');
+    return path;
+  }
+
+  function runZsh(rc: string, extraEnv: Record<string, string> = {}): string {
+    execFileSync(ZSH as string, ['-f', rc], {
+      encoding: 'utf8',
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, FAMILIAR_HOME: home, ...extraEnv },
+      timeout: 30_000,
+    });
+    return spool();
+  }
+
+  it('parses as valid zsh', () => {
+    const rc = writeRc();
+    expect(() =>
+      execFileSync(ZSH as string, ['-n', rc], {
+        encoding: 'utf8',
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 30_000,
+      }),
+    ).not.toThrow();
+  });
+
+  it('logs a check command with its exit code', () => {
+    const events = eventsFromSpool(runZsh(writeRc(`__familiar_log 1 'npm test'`)));
+    expect(events).toHaveLength(1);
+    expect(events[0]?.type).toBe('check_failed');
+  });
+
+  it('logs a passing check', () => {
+    const events = eventsFromSpool(runZsh(writeRc(`__familiar_log 0 'npm run build'`)));
+    expect(events[0]?.type).toBe('check_passed');
+  });
+
+  it('ignores commands that are not checks', () => {
+    expect(runZsh(writeRc(`__familiar_log 0 'git status'`)).trim()).toBe('');
+  });
+
+  it('marks an agent from the environment', () => {
+    const spooled = runZsh(writeRc(`__familiar_log 0 'npm test'`), { CLAUDECODE: '1' });
+    expect(spooled).toContain('claude-code');
+  });
+
+  it('writes nothing when the state directory is missing', () => {
+    const rc = writeRc(`__familiar_log 0 'npm test'`);
+    execFileSync(ZSH as string, ['-f', rc], {
+      encoding: 'utf8',
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, FAMILIAR_HOME: join(tmpdir(), 'familiar-does-not-exist-zsh') },
+      timeout: 30_000,
+    });
+    expect(spool().trim()).toBe('');
+  });
+
+  // The whole reason zsh gets its own snippet rather than reusing bash's.
+  it('sees a red then a green as one fix, end to end', () => {
+    const rc = writeRc(`__familiar_log 1 'npm test'\nsleep 0.01\n__familiar_log 0 'npm test'`);
+    const summary = summariseChecks(foldChecks(eventsFromSpool(runZsh(rc))));
+    expect(summary.fixes).toBe(1);
   });
 });
