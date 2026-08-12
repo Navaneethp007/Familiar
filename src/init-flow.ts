@@ -28,7 +28,7 @@ import { gridFor } from './core/sprites/grids.js';
 import { COLOURS, COLOUR_LABELS, paletteFor, type ColourName } from './core/sprites/palettes.js';
 import { TONES, TONE_LABELS, type ToneName } from './core/tone.js';
 import { XP_TABLE } from './core/xp.js';
-import { installClaudeIntegration } from './install.js';
+import { installClaudeIntegration, isEphemeralEntrypoint } from './install.js';
 import {
   defaultConfig,
   logError,
@@ -232,6 +232,24 @@ export async function runInit(deps: InitDeps): Promise<void> {
 
   if (skipClaude) {
     out('  skipped Claude Code wiring (--no-claude)');
+    out('');
+    return;
+  }
+
+  // Everything above this point is path-independent: it lives in ~/.familiar and
+  // survives however this was run. Wiring is not — it records the absolute path
+  // of *this* copy, so doing it from a throwaway npx cache produces settings
+  // that break silently the moment that cache is pruned. Refuse rather than
+  // leave a trap behind; the species, config and cursors are already saved.
+  if (isEphemeralEntrypoint()) {
+    out('  NOT wiring into Claude Code — this copy is running from a temporary');
+    out('  cache (npx), and the hooks would record a path that stops existing.');
+    out('');
+    out('  install it properly, then run init again:');
+    out('    npm install -g witch-familiar');
+    out('    familiar init');
+    out('');
+    out('  your species and settings are saved either way.');
     out('');
     return;
   }

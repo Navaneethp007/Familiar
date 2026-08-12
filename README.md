@@ -19,10 +19,23 @@ Git can never see that. Git only records the finished result — you never commi
 ## Install
 
 ```bash
-npm install
-npm run build
-node dist/cli.js init
+npm install -g witch-familiar
+familiar init
 ```
+
+The package is `witch-familiar` — plain `familiar` on npm is an unrelated Git helper. The
+commands it installs are `familiar` and the shorter `fam`.
+
+You can look at one without installing it:
+
+```bash
+npx witch-familiar look
+```
+
+but **`init` needs a real install**, not `npx`. Wiring records the absolute path of the copy
+that ran it, and `npx` runs from a cache that gets pruned — which would leave four hooks and a
+statusline pointing at a file that no longer exists. `init` detects this and refuses to wire
+rather than leaving that behind.
 
 `init` scans ~60 days of your local git history to pick which of three species you get, then wires hooks and a statusline into `~/.claude/settings.json` (backing it up first, and merging rather than overwriting).
 
@@ -171,6 +184,28 @@ Your level is **derived** from the event log every time it's read, never stored.
 ### One honest caveat
 
 `CLAUDECODE=1` is inherited by terminals launched from a Claude Code session, including VS Code's integrated terminal. Commands **you** type there may be attributed to the agent — there's no way to tell "inherited the variable" from "the agent ran this." Conjurer is slightly generous in that setup. It affects which branch you lean toward, never how much anything is worth.
+
+## Working on it
+
+```bash
+git clone https://github.com/Navaneethp007/Familiar.git
+cd Familiar
+npm install
+npm run build
+node dist/cli.js status
+```
+
+`dist/` is gitignored and built on demand — `npm run build` before the tests, because
+`hook-resilience.test.ts` runs the built CLI rather than the sources. `npm link` puts
+`familiar` on your PATH pointing at the checkout, which is easier than typing
+`node dist/cli.js` and avoids running a stale global copy alongside your changes.
+
+State lives in `~/.familiar` and the Claude Code hooks are wired to an absolute path, so
+point both somewhere disposable while experimenting:
+
+```bash
+FAMILIAR_HOME=/tmp/fam-test FAMILIAR_CLAUDE_SETTINGS=/tmp/fam-settings.json node dist/cli.js init
+```
 
 ## License
 

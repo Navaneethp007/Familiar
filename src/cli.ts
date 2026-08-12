@@ -473,7 +473,7 @@ function cmdUninstall(): void {
 
 function cmdHelp(): void {
   out(`
-  familiar — a companion that levels up on what you actually ship
+  familiar — a companion that levels up on what you actually fix
 
     familiar init [--force] [--quiet]       seed a species, wire up Claude Code
                  [--no-claude]              (--quiet skips the questions)

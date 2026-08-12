@@ -20,6 +20,22 @@ export function cliEntrypoint(): string {
   return resolve(here, 'cli.js').replace(/\\/g, '/');
 }
 
+/**
+ * Whether this copy is running from a throwaway cache rather than an install.
+ *
+ * `npx`, `pnpm dlx` and friends unpack into a directory they later prune. That
+ * is fine for a command that only reads — but wiring hooks records this exact
+ * path into `~/.claude/settings.json`, and once the cache is cleared all four
+ * hooks and the statusline point at a file that no longer exists. The symptom
+ * is Claude Code appearing to misbehave, with nothing naming Familiar as the
+ * cause, which is the worst kind of failure this project can produce.
+ */
+export function isEphemeralEntrypoint(path: string = cliEntrypoint()): boolean {
+  // `_npx` is a whole path segment; pnpm's is `dlx-<hash>`, so that one matches
+  // a segment *starting* with the prefix rather than equalling it.
+  return /[\\/](_npx[\\/]|dlx-[^\\/]*[\\/]|\.pnpm-store[\\/])/i.test(path);
+}
+
 function stripBom(text: string): string {
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 }

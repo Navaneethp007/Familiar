@@ -2,7 +2,12 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { installClaudeIntegration, readSettings, uninstallClaudeIntegration } from '../src/install.js';
+import {
+  installClaudeIntegration,
+  isEphemeralEntrypoint,
+  readSettings,
+  uninstallClaudeIntegration,
+} from '../src/install.js';
 import { tempDir, useTempHome } from './helpers.js';
 
 let home: ReturnType<typeof useTempHome>;
@@ -210,5 +215,34 @@ describe('uninstall', () => {
 describe('readSettings', () => {
   it('treats a missing file as empty', () => {
     expect(readSettings(join(home.dir, 'nope.json'))).toEqual({});
+  });
+});
+
+describe('running from a throwaway cache', () => {
+  // npx unpacks into a directory it later prunes. Wiring records an absolute
+  // path, so hooks installed from there break silently once the cache clears —
+  // and the symptom looks like Claude Code misbehaving, with nothing naming
+  // Familiar as the cause.
+  it('recognises the caches that get pruned', () => {
+    const ephemeral = [
+      'C:/Users/x/AppData/Local/npm-cache/_npx/a1b2/node_modules/witch-familiar/dist/cli.js',
+      '/home/x/.npm/_npx/9f3/node_modules/witch-familiar/dist/cli.js',
+      '/tmp/dlx-12345/node_modules/witch-familiar/dist/cli.js',
+    ];
+    for (const path of ephemeral) {
+      expect(isEphemeralEntrypoint(path), path).toBe(true);
+    }
+  });
+
+  it('leaves a real installation alone', () => {
+    const durable = [
+      'C:/Users/x/AppData/Roaming/npm/node_modules/witch-familiar/dist/cli.js',
+      '/usr/local/lib/node_modules/witch-familiar/dist/cli.js',
+      'C:/Users/nvps7/Familiar/dist/cli.js',
+      '/home/x/projects/Familiar/dist/cli.js',
+    ];
+    for (const path of durable) {
+      expect(isEphemeralEntrypoint(path), path).toBe(false);
+    }
   });
 });
