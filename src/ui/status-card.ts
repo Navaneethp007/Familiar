@@ -5,7 +5,7 @@
 import { formIdentity } from '../core/forms.js';
 import { BRANCH_LABELS, type HabitScores } from '../core/habits.js';
 import { SPECIES_BLURBS, SPECIES_LABELS } from '../core/species.js';
-import { TONE_LABELS, type ToneName } from '../core/tone.js';
+import { ambientCycle, speakCycle, TONE_LABELS, type ToneName } from '../core/tone.js';
 import { weeklyTotals, type CreatureState } from '../core/xp.js';
 import type { FamiliarEvent } from '../core/events.js';
 
@@ -67,7 +67,21 @@ export function renderStatusCard(input: StatusCardInput): string {
   lines.push('');
 
   if (state.nextLevelAt === null) {
-    lines.push(`  XP  ${bar(1)}  ${state.xp} (max level)`);
+    // The ending, stated plainly and permanently.
+    //
+    // This is where the promise is actually kept. The one-time crossing quip
+    // fires into a footer that forgets it after five minutes, and it can never
+    // fire at all for somebody who was already at the cap before this existed.
+    // So the card says it every time, and says the part that matters most —
+    // that nothing else is pending — rather than leaving somebody waiting for
+    // an unlock that is not coming.
+    lines.push(`  XP  ${bar(1, 20, '✦', '·')}  ${state.xp} xp  ·  Lv.${state.level}, the last one`);
+    lines.push('');
+    lines.push('      you finished it. there are no levels past this one,');
+    lines.push('      and nothing else is waiting to unlock.');
+    // The same line the footer is showing this hour — both read ambientCycle,
+    // so the two surfaces read as one creature rather than two widgets.
+    lines.push(`      "${speakCycle(tone, 'at_peace', ambientCycle(now))}"`);
   } else {
     const into = state.xp - state.levelFloor;
     const span = state.nextLevelAt - state.levelFloor;

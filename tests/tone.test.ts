@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AMBIENT_BUCKET_MS,
+  ambientCycle,
   SPEAK_COOLDOWN_MS,
   SPEAK_KEYS,
   shouldSpeak,
   speak,
+  speakCycle,
   TONE_BANKS,
   TONES,
 } from '../src/core/tone.js';
@@ -96,5 +99,67 @@ describe('shouldSpeak', () => {
 
   it('speaks when the stored timestamp is unreadable', () => {
     expect(shouldSpeak('not-a-date', now)).toBe(true);
+  });
+});
+
+describe('ambientCycle', () => {
+  const noon = new Date('2026-07-30T12:00:00Z');
+
+  it('holds steady inside the bucket', () => {
+    const fivePast = new Date('2026-07-30T12:05:00Z');
+    const fiftyPast = new Date('2026-07-30T12:50:00Z');
+    expect(ambientCycle(fivePast)).toBe(ambientCycle(noon));
+    expect(ambientCycle(fiftyPast)).toBe(ambientCycle(noon));
+  });
+
+  it('advances by exactly one when the hour turns', () => {
+    const later = new Date(noon.getTime() + AMBIENT_BUCKET_MS);
+    expect(ambientCycle(later)).toBe(ambientCycle(noon) + 1);
+  });
+
+  it('survives an unreadable date instead of returning NaN', () => {
+    expect(ambientCycle(new Date('nonsense'))).toBe(0);
+  });
+});
+
+describe('speakCycle', () => {
+  it('walks the whole bank before repeating', () => {
+    for (const tone of TONES) {
+      const bank = TONE_BANKS[tone].at_peace;
+      const seen = bank.map((_, i) => speakCycle(tone, 'at_peace', i));
+      expect(new Set(seen).size, tone).toBe(bank.length);
+    }
+  });
+
+  // The reason this exists rather than reusing `speak`: a hash would land on
+  // the same line in consecutive buckets about one time in n, and a rotating
+  // line that repeats reads as a stuck statusline.
+  it('never says the same thing twice in a row', () => {
+    for (const tone of TONES) {
+      const bank = TONE_BANKS[tone].at_peace;
+      for (let i = 0; i < bank.length * 3; i++) {
+        expect(speakCycle(tone, 'at_peace', i), `${tone}@${i}`).not.toBe(
+          speakCycle(tone, 'at_peace', i + 1),
+        );
+      }
+    }
+  });
+
+  it('wraps cleanly around negative and enormous cycles', () => {
+    const bank = TONE_BANKS.deadpan.at_peace;
+    for (const cycle of [-1, -9_999, 0, Number.MAX_SAFE_INTEGER]) {
+      expect(bank, String(cycle)).toContain(speakCycle('deadpan', 'at_peace', cycle));
+    }
+    expect(bank).toContain(speakCycle('deadpan', 'at_peace', Number.NaN));
+  });
+
+  it('is deterministic for a given cycle', () => {
+    const runs = Array.from({ length: 12 }, () => speakCycle('gremlin', 'at_peace', 7));
+    expect(new Set(runs).size).toBe(1);
+  });
+
+  it('falls back to deadpan for an unknown tone', () => {
+    const line = speakCycle('nonsense' as never, 'at_peace', 3);
+    expect(TONE_BANKS.deadpan.at_peace).toContain(line);
   });
 });

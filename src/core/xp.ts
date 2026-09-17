@@ -39,7 +39,7 @@ export const XP_TABLE: Record<EventType, number> = {
 
 export const HATCH_LEVEL = 5;
 export const EVOLVE_LEVEL = 15;
-export const MAX_LEVEL = 99;
+export const MAX_LEVEL = 100;
 
 export type Stage = 'egg' | 'hatchling' | 'final';
 export type Mood = 'happy' | 'neutral' | 'sad' | 'alarmed';
@@ -70,10 +70,47 @@ export interface CreatureState {
   evolvedOn: FamiliarEvent | null;
 }
 
+/**
+ * Curve shape. Quadratic means the marginal cost of a level grows *linearly* —
+ * every level costs a constant 16 XP more than the one before it, which is a
+ * rule a person can hold in their head.
+ *
+ * This replaced `10 * (L-1)^1.5`, which was barely superlinear: under it the
+ * last level cost 149 XP and the fifteenth cost 55, so the whole back half of
+ * the ladder was decorative and a steady developer reached the cap in weeks.
+ *
+ * The cap is 78,408 XP. A caution for whoever retunes this next: the log it
+ * was first sized against ran at 158 XP/day, but three quarters of that was
+ * teammates' commits the git scan used to count. The same developer's own
+ * work was ~45 XP/day, which puts the cap nearer five years than one and a
+ * half. Measure a filtered log before trusting a rate.
+ */
+const LEVEL_COST = 8;
+const LEVEL_EXPONENT = 2;
+
+/**
+ * Which curve a familiar's evolution was decided under. Bump it whenever a
+ * retune moves `totalXpForLevel(EVOLVE_LEVEL)`, and teach `lockEvolution` what
+ * the previous threshold was.
+ */
+export const CURVE_VERSION = 2;
+
+/**
+ * What evolving cost before CURVE_VERSION 2: `10 * (15-1)^1.5`.
+ *
+ * Kept because the new curve charges three times as much to reach the evolve
+ * level. Anybody who evolved between the two thresholds would otherwise fall
+ * back to a hatchling on upgrade — and on re-crossing, `selectBranch` would
+ * score a longer history than it originally did and could hand them a
+ * *different* creature. The form is the one thing in Familiar that is earned
+ * once, so it is the one thing a retune must not take back.
+ */
+export const LEGACY_EVOLVE_XP = 524;
+
 /** Cumulative XP needed to *reach* a level. Level 1 costs nothing. */
 export function totalXpForLevel(level: number): number {
   if (level <= 1) return 0;
-  return Math.round(10 * Math.pow(level - 1, 1.5));
+  return Math.round(LEVEL_COST * Math.pow(level - 1, LEVEL_EXPONENT));
 }
 
 export function levelForXp(xp: number): number {
@@ -144,8 +181,21 @@ function emptyTotals(): Record<EventType, number> {
   };
 }
 
+/** A branch fixed at the moment it was earned, and the event that earned it. */
+export interface EvolutionRecord {
+  branch: Branch;
+  /** Key of the event that crossed the threshold; null if it is not known. */
+  eventKey: string | null;
+}
+
 export interface DeriveOptions {
   species?: Species;
+  /**
+   * An evolution that already happened. When present it wins outright: the
+   * fold neither re-decides the branch nor lets a lower level undo the form.
+   * XP and level still re-derive freely — only identity is sticky.
+   */
+  evolution?: EvolutionRecord | null;
   /** Overridable so tests and the widget can reason about a fixed moment. */
   now?: Date;
 }
@@ -154,9 +204,13 @@ export interface DeriveOptions {
  * Folds the log into a creature.
  *
  * Branch selection happens *at the moment* the creature crosses EVOLVE_LEVEL,
- * scored on the events up to that point — so it locks naturally, without being
- * persisted anywhere. Later events cannot re-decide it, which is the point:
+ * scored on the events up to that point, so later events cannot re-decide it —
  * evolution should be a moment, not a weekly reshuffle.
+ *
+ * That lock only holds while the curve stands still: retune it and the moment
+ * moves. So once an evolution has happened it is also saved (see
+ * state/identity.ts) and handed back in as `options.evolution`, which wins over
+ * the fold. Everything else here stays derived.
  */
 export function deriveState(
   rawEvents: readonly FamiliarEvent[],
@@ -170,10 +224,13 @@ export function deriveState(
   // event pushed the creature over a level boundary.
   const checks = foldChecks(events);
 
+  const locked = options.evolution ?? null;
+
   let xp = 0;
   let level = 1;
-  let branch: Branch | null = null;
-  let evolvedOn: FamiliarEvent | null = null;
+  let branch: Branch | null = locked?.branch ?? null;
+  let evolvedOn: FamiliarEvent | null =
+    locked?.eventKey != null ? (events.find((e) => e.key === locked.eventKey) ?? null) : null;
   let lastLevelUp: FamiliarEvent | null = null;
   const totals = emptyTotals();
 
@@ -205,7 +262,9 @@ export function deriveState(
 
   return {
     species: options.species ?? 'sprout',
-    stage: stageForLevel(level),
+    // A locked branch means the creature already evolved, whatever level the
+    // current curve puts it at.
+    stage: branch !== null ? 'final' : stageForLevel(level),
     branch,
     level,
     xp,
@@ -221,6 +280,58 @@ export function deriveState(
     lastLevelUp,
     evolvedOn,
   };
+}
+
+/**
+ * When, and into what, a log evolves at a given XP threshold.
+ *
+ * The same decision the fold makes — first event whose cumulative XP reaches
+ * the threshold, branch scored on everything up to and including it — exposed
+ * on its own so an evolution can be recovered under a threshold the fold no
+ * longer uses.
+ */
+export function findEvolution(
+  rawEvents: readonly FamiliarEvent[],
+  xpToEvolve: number = totalXpForLevel(EVOLVE_LEVEL),
+): EvolutionRecord | null {
+  const events = dedupeEvents(sortEvents(rawEvents));
+  const checks = foldChecks(events);
+
+  let xp = 0;
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i];
+    if (!event) continue;
+    xp += xpFor(event, checks);
+    if (xp >= xpToEvolve) {
+      return { branch: selectBranch(scoreHabits(events.slice(0, i + 1))), eventKey: event.key };
+    }
+  }
+  return null;
+}
+
+export interface EvolutionLock {
+  evolution: EvolutionRecord | null;
+  curve: number;
+}
+
+/**
+ * Brings a stored evolution up to the current curve.
+ *
+ * - Something already locked stays locked.
+ * - A familiar last seen on an older curve gets the evolution it earned under
+ *   that curve, recovered from the log — this is what stops the retune
+ *   de-evolving anybody.
+ * - A familiar already on the current curve with nothing locked has not
+ *   evolved yet, and the fold decides that as it always did.
+ *
+ * Pure: the caller decides whether to save the result.
+ */
+export function lockEvolution(stored: EvolutionLock, events: readonly FamiliarEvent[]): EvolutionLock {
+  if (stored.evolution) return { evolution: stored.evolution, curve: CURVE_VERSION };
+  if (stored.curve < CURVE_VERSION) {
+    return { evolution: findEvolution(events, LEGACY_EVOLVE_XP), curve: CURVE_VERSION };
+  }
+  return { evolution: null, curve: stored.curve };
 }
 
 /** Events inside the trailing 7 days, for the "this week" line on the card. */

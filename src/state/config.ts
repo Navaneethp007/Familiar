@@ -8,9 +8,11 @@
 
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 
+import { BRANCHES, type Branch } from '../core/habits.js';
 import { SPECIES, type Species } from '../core/species.js';
 import { COLOURS, type ColourName } from '../core/sprites/palettes.js';
 import { TONES, type ToneName } from '../core/tone.js';
+import { CURVE_VERSION, type EvolutionRecord } from '../core/xp.js';
 import { configPath, cursorPath, errorLogPath, renderCachePath } from './paths.js';
 import { ensureHome } from './log.js';
 
@@ -43,6 +45,21 @@ export interface FamiliarConfig {
    * the failure mode is a completely invisible familiar and no error anywhere.
    */
   colour: ColourName | null;
+  /**
+   * The level curve this familiar's evolution was last settled under.
+   *
+   * Absent in every config written before the curve was retuned, so absent
+   * reads as 1 — that is what tells `lockEvolution` to recover the evolution
+   * the old curve granted instead of letting the new one take it away.
+   */
+  curve: number;
+  /**
+   * The branch, once earned. The one piece of identity that is saved rather
+   * than derived, because a retune would otherwise move the moment it was
+   * decided. Losing this file costs nothing on the current curve: the fold
+   * re-derives the same answer from the log.
+   */
+  evolution: EvolutionRecord | null;
 }
 
 export function defaultConfig(species: Species = 'sprout'): FamiliarConfig {
@@ -55,7 +72,16 @@ export function defaultConfig(species: Species = 'sprout'): FamiliarConfig {
     claudeInstalled: false,
     voice: false,
     colour: null,
+    curve: CURVE_VERSION,
+    evolution: null,
   };
+}
+
+function readEvolution(raw: unknown): EvolutionRecord | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const { branch, eventKey } = raw as { branch?: unknown; eventKey?: unknown };
+  if (typeof branch !== 'string' || !(BRANCHES as readonly string[]).includes(branch)) return null;
+  return { branch: branch as Branch, eventKey: typeof eventKey === 'string' ? eventKey : null };
 }
 
 function readJson<T>(path: string): T | null {
@@ -94,6 +120,8 @@ export function readConfig(): FamiliarConfig | null {
     voice: raw.voice === true,
     colour:
       raw.colour && (COLOURS as readonly string[]).includes(raw.colour) ? raw.colour : null,
+    curve: typeof raw.curve === 'number' && Number.isFinite(raw.curve) ? raw.curve : 1,
+    evolution: readEvolution(raw.evolution),
   };
 }
 

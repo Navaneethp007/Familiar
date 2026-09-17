@@ -80,13 +80,22 @@ describe('the level curve', () => {
   });
 
   it('is strictly increasing', () => {
-    for (let level = 2; level <= 40; level++) {
+    for (let level = 2; level <= MAX_LEVEL; level++) {
       expect(totalXpForLevel(level)).toBeGreaterThan(totalXpForLevel(level - 1));
     }
   });
 
+  it('leaves at least one XP between adjacent levels', () => {
+    // Rounding is what makes this a real risk: a gentle enough curve collapses
+    // two adjacent levels onto the same integer, and the round-trip below then
+    // fails somewhere far from the coefficient that caused it.
+    for (let level = 2; level <= MAX_LEVEL; level++) {
+      expect(totalXpForLevel(level) - totalXpForLevel(level - 1)).toBeGreaterThanOrEqual(1);
+    }
+  });
+
   it('round-trips level -> xp -> level', () => {
-    for (let level = 1; level <= 40; level++) {
+    for (let level = 1; level <= MAX_LEVEL; level++) {
       expect(levelForXp(totalXpForLevel(level))).toBe(level);
       expect(levelForXp(totalXpForLevel(level) - 1)).toBe(level - 1 || 1);
     }
@@ -94,7 +103,33 @@ describe('the level curve', () => {
 
   it('caps at MAX_LEVEL', () => {
     expect(levelForXp(Number.MAX_SAFE_INTEGER)).toBe(MAX_LEVEL);
-    expect(deriveState(series('pr_merged', 400)).nextLevelAt).toBeNull();
+    // Derived, not hardcoded: an event count baked in here is exactly the
+    // coupling that makes the curve unretunable, because it fails on a change
+    // to a number it never mentions.
+    const merges = Math.ceil(totalXpForLevel(MAX_LEVEL) / XP_TABLE.pr_merged) + 1;
+    expect(deriveState(series('pr_merged', merges)).nextLevelAt).toBeNull();
+  });
+
+  // The three tests below are the pacing bug, written down. The original curve
+  // (10 * (L-1)^1.5) failed the first two: its last level cost 149 XP, less
+  // than a day's work, so the entire back half of the ladder was decorative.
+  it('makes the last level cost more than the first several put together', () => {
+    const last = totalXpForLevel(MAX_LEVEL) - totalXpForLevel(MAX_LEVEL - 1);
+    expect(last).toBeGreaterThan(totalXpForLevel(6));
+  });
+
+  it('keeps the cap out of reach of a year of heavy work', () => {
+    // 158 XP/day is the fastest any real log has run — and that one was
+    // inflated by teammates' commits, so it is a generous upper bound. Even at
+    // that rate the cap should outlast a year.
+    expect(totalXpForLevel(MAX_LEVEL) / 158).toBeGreaterThan(365);
+  });
+
+  it('still hatches and evolves inside a sane ramp', () => {
+    // The other half of the tuning: a long ladder must not push the two
+    // moments that actually change the creature out past anyone's patience.
+    expect(totalXpForLevel(HATCH_LEVEL)).toBeLessThan(XP_TABLE.pr_merged * 5);
+    expect(totalXpForLevel(EVOLVE_LEVEL)).toBeLessThan(XP_TABLE.pr_merged * 45);
   });
 });
 

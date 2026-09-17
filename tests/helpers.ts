@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { makeEvent, type EventType, type FamiliarEvent } from '../src/core/events.js';
+import { MAX_LEVEL, totalXpForLevel, XP_TABLE } from '../src/core/xp.js';
 
 /** A disposable ~/.familiar for a test. */
 export function useTempHome(): { dir: string; cleanup: () => void } {
@@ -35,6 +36,19 @@ export function ev(type: EventType, overrides: Partial<FamiliarEvent> = {}): Fam
     at: overrides.t ?? new Date('2026-07-01T12:00:00Z'),
     meta: overrides.meta ?? {},
   });
+}
+
+/**
+ * Enough merges to sit at MAX_LEVEL.
+ *
+ * Derived from the curve rather than counted out, for the same reason the
+ * level tests are: a hardcoded number here fails on a change to a coefficient
+ * it never mentions. Events land an hour apart, so pass a `now` after the last
+ * one or the idle line wins.
+ */
+export function cappedEvents(start = new Date('2026-07-01T09:00:00Z')): FamiliarEvent[] {
+  const merges = Math.ceil(totalXpForLevel(MAX_LEVEL) / XP_TABLE.pr_merged) + 1;
+  return series('pr_merged', merges, {}, start);
 }
 
 /** `n` events of one type, an hour apart, starting at `start`. */

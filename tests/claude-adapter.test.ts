@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { classifyTestRun, eventsFromHook } from '../src/adapters/claude-code.js';
-import { deriveState } from '../src/core/xp.js';
+import { deriveState, MAX_LEVEL, type CreatureState } from '../src/core/xp.js';
 import { chooseSpeakKey } from '../src/hook.js';
 import { ev, series } from './helpers.js';
 
@@ -165,6 +165,20 @@ describe('eventsFromHook', () => {
 describe('chooseSpeakKey', () => {
   const quiet = deriveState([]);
 
+  /** A state with the cumulative counts milestones read, and nothing else moved. */
+  const withCounts = (
+    base: CreatureState,
+    over: { commits?: number; merges?: number; fixes?: number },
+  ): CreatureState => ({
+    ...base,
+    totals: {
+      ...base.totals,
+      commit: over.commits ?? base.totals.commit,
+      pr_merged: over.merges ?? base.totals.pr_merged,
+    },
+    checks: { ...base.checks, fixes: over.fixes ?? base.checks.fixes },
+  });
+
   it('says nothing when nothing meaningful happened', () => {
     expect(chooseSpeakKey(quiet, quiet, [])).toBeNull();
     expect(chooseSpeakKey(quiet, quiet, [ev('session_start')])).toBeNull();
@@ -181,6 +195,41 @@ describe('chooseSpeakKey', () => {
     const before = deriveState(series('commit', 2));
     const after = { ...before, level: before.level + 1 };
     expect(chooseSpeakKey(before, after, [ev('commit')])?.key).toBe('level_up');
+  });
+
+  it('announces the end of the ladder at the moment it is crossed', () => {
+    const before = { ...quiet, level: MAX_LEVEL - 1 };
+    const after = { ...quiet, level: MAX_LEVEL, nextLevelAt: null };
+    const choice = chooseSpeakKey(before, after, [ev('pr_merged')]);
+    expect(choice?.key).toBe('max_level');
+    expect(choice?.seed).toBe(`${MAX_LEVEL}`);
+  });
+
+  it('says it once and never again', () => {
+    // Already capped: the crossing is behind us, so ordinary life resumes.
+    const capped = { ...quiet, level: MAX_LEVEL, nextLevelAt: null };
+    expect(chooseSpeakKey(capped, capped, [ev('commit', { meta: { hour: 14 } })])?.key).toBe(
+      'commit',
+    );
+  });
+
+  it('ranks a landmark above an ordinary fix', () => {
+    const before = withCounts(quiet, { merges: 99 });
+    const after = withCounts(quiet, { merges: 100 });
+    expect(chooseSpeakKey(before, after, [ev('pr_merged')])?.key).toBe('milestone_merges');
+  });
+
+  // Documents an accepted loss: there is no queue, so one of them is dropped.
+  it('lets a level up outrank a landmark in the same batch', () => {
+    const before = withCounts(quiet, { merges: 99 });
+    const after = { ...withCounts(quiet, { merges: 100 }), level: quiet.level + 1 };
+    expect(chooseSpeakKey(before, after, [ev('pr_merged')])?.key).toBe('level_up');
+  });
+
+  it('seeds a landmark on the milestone itself, not the batch', () => {
+    const before = withCounts(quiet, { fixes: 24 });
+    const after = withCounts(quiet, { fixes: 25 });
+    expect(chooseSpeakKey(before, after, [ev('tests_passed')])?.seed).toBe('fixes:25');
   });
 
   it('ranks a merge above a test result', () => {

@@ -33,6 +33,16 @@ export const SPEAK_KEYS = [
   'level_up',
   'evolved',
   'idle',
+  // Ambient at the cap. Like `idle`, never returned by chooseSpeakKey — the
+  // surfaces pick it themselves, on a clock, because there is no event to
+  // react to. It is the only line most capped familiars will ever say.
+  'at_peace',
+  // The end of the ladder, said once.
+  'max_level',
+  // Landmarks on cumulative counts. See core/milestones.ts.
+  'milestone_commits',
+  'milestone_merges',
+  'milestone_fixes',
   // Transition moments. `check_fixed` is the one worth having a voice for at
   // all — it is the only line that can acknowledge something you struggled
   // with, because it is the only moment the log knows you struggled.
@@ -63,6 +73,36 @@ const HYPE: ToneBank = {
   level_up: ['LEVEL UP! look at that bar move', 'new level unlocked, keep going', 'thats a level. earned, not given'],
   evolved: ['EVOLUTION! it changed shape!', 'it evolved!! this is the best day', 'new form unlocked. legendary'],
   idle: ['ready when you are', 'lets get something on the board today', 'the bar is waiting'],
+  at_peace: [
+    'the bar is done. the work is not',
+    'still shipping at the ceiling. thats the flex',
+    'no levels left, so its just you and the craft now',
+    'peak form. and still showing up. love it',
+    'nothing left to earn. everything left to build',
+    'the grind ended. the good part didnt',
+    'top of the ladder, still doing reps',
+    'max level and still here. thats the whole point',
+  ],
+  max_level: [
+    'THE CAP. you actually did it',
+    'thats the ceiling. the bar is done, you are not',
+    'MAX LEVEL. nothing left to climb. incredible',
+  ],
+  milestone_commits: [
+    'that is a LOT of commits. look at the pile',
+    'the commit count just hit a real number',
+    'a stack of work that high is no accident',
+  ],
+  milestone_merges: [
+    'that many merges is a serious record',
+    'another landmark landed. elite numbers',
+    'the merge count is getting ridiculous',
+  ],
+  milestone_fixes: [
+    'that many saves is a record, not a streak',
+    'the fix count just hit a landmark. huge',
+    'red to green, again and again. elite',
+  ],
   check_fixed: ['FIXED IT. thats the good stuff', 'red to green! love to see it', 'broken, then not. beautiful'],
   check_fixed_hard: [
     'you FOUGHT that one. huge',
@@ -82,6 +122,36 @@ const DEADPAN: ToneBank = {
   level_up: ['level up. modest applause.', 'a new level. incremental.', 'the number went up.'],
   evolved: ['it evolved. thats new.', 'new form. same problems.', 'evolution complete. mild alarm.'],
   idle: ['waiting.', 'nothing to report.', 'still here.'],
+  at_peace: [
+    'the bar retired. i did not.',
+    'no more levels. same desk, same work.',
+    'maxed out. still watching, obviously.',
+    'nothing left to measure. carry on.',
+    'the numbers ended. the commits did not.',
+    'at the ceiling. it is quite nice up here.',
+    'no progress bar. surprisingly freeing.',
+    'finished the game. still turning up.',
+  ],
+  max_level: [
+    'the numbers stop here.',
+    'thats the last level. the game is finished.',
+    'max level. the bar retires, i do not.',
+  ],
+  milestone_commits: [
+    'the commit count reached a round number.',
+    'a milestone. numerically speaking.',
+    'that is a great many commits. noted.',
+  ],
+  milestone_merges: [
+    'the merge count hit a landmark. impressive.',
+    'a notable number of merges. carry on.',
+    'that is a lot of things in main now.',
+  ],
+  milestone_fixes: [
+    'a landmark number of things un-broken.',
+    'the fix count reached a round number.',
+    'many repairs. all of them counted.',
+  ],
   check_fixed: ['it works again. remarkable.', 'green, eventually.', 'fixed. we move on.'],
   check_fixed_hard: [
     'that took a while.',
@@ -101,6 +171,36 @@ const ZEN: ToneBank = {
   level_up: ['growth arrives without asking', 'the form deepens', 'a threshold, quietly crossed'],
   evolved: ['what you tended has changed shape', 'the form was always waiting inside', 'becoming, made visible'],
   idle: ['stillness is also practice', 'the work waits patiently', 'nothing needs doing right now'],
+  at_peace: [
+    'nothing left to climb. only to tend',
+    'the ladder ended. the garden did not',
+    'arrival is not an ending',
+    'the work needs no number to be real',
+    'past the last threshold, the path widens',
+    'complete, and still continuing',
+    'there is nowhere left to get to',
+    'the measure fell away. the practice remains',
+  ],
+  max_level: [
+    'the ladder ends here. the practice does not',
+    'you have arrived. now simply continue',
+    'the last threshold, quietly crossed',
+  ],
+  milestone_commits: [
+    'many small stones, now a wall',
+    'the count passed a quiet landmark',
+    'each one was small. together, not',
+  ],
+  milestone_merges: [
+    'many rivers have reached the sea',
+    'the whole is made of all of these',
+    'a landmark, passed without stopping',
+  ],
+  milestone_fixes: [
+    'many broken things, made whole again',
+    'the count of repairs passed a landmark',
+    'each repair was small. the sum is not',
+  ],
   check_fixed: ['what was broken is whole', 'the obstruction is gone', 'the way is open again'],
   check_fixed_hard: [
     'the stone took many strikes',
@@ -120,6 +220,36 @@ const GREMLIN: ToneBank = {
   level_up: ['bigger!! stronger!! louder!!', 'level up. i grow', 'more power. concerning'],
   evolved: ['I CHANGED. look at me', 'new body!! who dis', 'evolved!! completely different creature now'],
   idle: ['bored. give me something', 'nothing is happening. rude', 'i am waiting and it is unbearable'],
+  at_peace: [
+    'i ate all the xp. there is none left',
+    'no more levels!! i am free. we are free',
+    'maxed out and still causing problems. good',
+    'the bar is gone. i live in the footer now',
+    'finished the game. staying anyway. suffer',
+    'nothing left to grind. pure chaos from here',
+    'top level!! now i just watch you type',
+    'no numbers left. only me',
+  ],
+  max_level: [
+    'THE LAST ONE!! the bar exploded',
+    'max level!! i ate the last of the xp',
+    'thats it. no more numbers. only vibes',
+  ],
+  milestone_commits: [
+    'SO MANY COMMITS. i have eaten them all',
+    'the pile is enormous now. all mine',
+    'a hoard of commits. delicious hoard',
+  ],
+  milestone_merges: [
+    'main has been infiltrated MANY times now',
+    'the merge hoard grows. excellent',
+    'that many?? outrageous. i love it',
+  ],
+  milestone_fixes: [
+    'that many rescues?? annoyingly impressive',
+    'all that un-breaking. it never stops',
+    'a landmark pile of repairs. boo',
+  ],
   check_fixed: ['you patched it!! boo', 'green again. i preferred the chaos', 'fixed. disappointing but impressive'],
   check_fixed_hard: [
     'it resisted!! and you still won',
@@ -158,6 +288,44 @@ export function speak(tone: ToneName, key: SpeakKey, seed = ''): string {
   if (!lines || lines.length === 0) return '';
   const index = hash(`${tone}:${key}:${seed}`) % lines.length;
   return lines[index] ?? '';
+}
+
+/**
+ * How long an ambient line holds.
+ *
+ * Both bounds are real. Below a minute it would visibly change while somebody
+ * is reading it — Claude Code redraws the statusline on every assistant
+ * message — which is flicker, not life. It also has to sit clearly slower than
+ * the event band (QUIP_TTL_MS 5min, SPEAK_COOLDOWN_MS 90s) so a real quip still
+ * reads as an event. Above a day it stops moving at all, which is the problem
+ * it exists to solve. An hour gives three to five distinct lines per session.
+ */
+export const AMBIENT_BUCKET_MS = 60 * 60 * 1000;
+
+/** Which ambient slot `now` falls in. UTC epoch division, so no timezone reasoning. */
+export function ambientCycle(now: Date, bucketMs = AMBIENT_BUCKET_MS): number {
+  const ms = now.getTime();
+  if (!Number.isFinite(ms) || bucketMs <= 0) return 0;
+  return Math.floor(ms / bucketMs);
+}
+
+/**
+ * Picks a line by position rather than by hash.
+ *
+ * `speak` hashes its seed, which is right for events — a seed there is a key,
+ * not an ordinal. For a line that advances on a clock, hashing would land on
+ * the same line in consecutive buckets roughly one time in n, and a "rotating"
+ * line showing the same words two hours running reads as broken. Counter-mod
+ * guarantees every step moves, and that the whole bank is seen before anything
+ * repeats.
+ */
+export function speakCycle(tone: ToneName, key: SpeakKey, cycle: number): string {
+  const bank = TONE_BANKS[tone] ?? TONE_BANKS.deadpan;
+  const lines = bank[key];
+  if (!lines || lines.length === 0) return '';
+  const n = lines.length;
+  const safe = Number.isFinite(cycle) ? Math.trunc(cycle) : 0;
+  return lines[((safe % n) + n) % n] ?? '';
 }
 
 export const SPEAK_COOLDOWN_MS = 90_000;

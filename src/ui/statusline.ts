@@ -11,10 +11,10 @@
  */
 
 import { formIdentity } from '../core/forms.js';
-import { deriveState, IDLE_AFTER_MS } from '../core/xp.js';
+import { deriveState, IDLE_AFTER_MS, type EvolutionRecord } from '../core/xp.js';
 import type { FamiliarEvent } from '../core/events.js';
 import type { Species } from '../core/species.js';
-import { speak, type ToneName } from '../core/tone.js';
+import { ambientCycle, speak, speakCycle, type ToneName } from '../core/tone.js';
 import { readRenderCache } from '../state/config.js';
 
 /** How long a quip stays on screen before the line goes quiet again. */
@@ -27,6 +27,24 @@ export function miniBar(progress: number, width = 5): string {
   return '▓'.repeat(on) + '░'.repeat(Math.max(0, width - on));
 }
 
+/**
+ * What sits where the bar used to, once there is no next level.
+ *
+ * A progress bar pinned full is indistinguishable from one that rounded up, so
+ * at the cap it reads as a bug rather than an achievement — the number stops
+ * moving, the bar stops moving, and nothing says why. This is the same five
+ * cells wide, so the line's geometry never changes, but it is unmistakably not
+ * a gauge. It steps on the same cycle as the ambient line so the whole footer
+ * moves as one creature rather than two widgets.
+ */
+const PEAK_FRAMES = ['✦····', '·✦···', '··✦··', '···✦·', '····✦', '···✦·', '··✦··', '·✦···'] as const;
+
+export function peakMark(cycle: number): string {
+  const n = PEAK_FRAMES.length;
+  const safe = Number.isFinite(cycle) ? Math.trunc(cycle) : 0;
+  return PEAK_FRAMES[((safe % n) + n) % n] ?? PEAK_FRAMES[0];
+}
+
 export interface StatuslineInput {
   events: readonly FamiliarEvent[];
   species: Species;
@@ -34,6 +52,8 @@ export interface StatuslineInput {
   tone?: ToneName;
   quip?: string | null;
   now?: Date;
+  /** An evolution already earned. See state/identity.ts. */
+  evolution?: EvolutionRecord | null;
 }
 
 /**
@@ -51,10 +71,21 @@ function quietFor(lastEventAt: string | null, now: number): number {
 
 export function renderStatusline(input: StatuslineInput): string {
   const now = input.now ?? new Date();
-  const state = deriveState(input.events, { species: input.species, now });
+  const state = deriveState(input.events, {
+    species: input.species,
+    now,
+    evolution: input.evolution ?? null,
+  });
   const form = formIdentity(state.species, state.stage, state.branch);
+  const tone = input.tone ?? 'deadpan';
 
-  const base = `${form.emoji} Lv.${state.level} ${miniBar(state.progress)}`;
+  // `nextLevelAt === null` is the cap — the same idiom the status card uses, so
+  // the two surfaces cannot disagree about what "maxed" means.
+  const capped = state.nextLevelAt === null;
+  const cycle = ambientCycle(now);
+  const gauge = capped ? peakMark(cycle) : miniBar(state.progress);
+
+  const base = `${form.emoji} Lv.${state.level} ${gauge}`;
   if (input.quip) return `${base} · "${input.quip}"`;
 
   // Nothing fresh to say, and nothing has happened in days. Say so — but pick
@@ -64,8 +95,14 @@ export function renderStatusline(input: StatuslineInput): string {
   // matters because this file is not allowed to write anything.
   if (quietFor(state.lastEventAt, now.getTime()) > IDLE_AFTER_MS) {
     const dayStamp = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
-    return `${base} · "${speak(input.tone ?? 'deadpan', 'idle', dayStamp)}"`;
+    return `${base} · "${speak(tone, 'idle', dayStamp)}"`;
   }
+
+  // Past the cap there is no bar left to watch, so the voice is the whole
+  // surface — this line never falls through to a bare one. It sits below the
+  // idle check on purpose: after three silent days "waiting." is the truer
+  // thing to say, and IDLE_AFTER_MS is the older contract.
+  if (capped) return `${base} · "${speakCycle(tone, 'at_peace', cycle)}"`;
 
   return base;
 }

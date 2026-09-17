@@ -206,13 +206,24 @@ describe('VOICE_KEYS', () => {
     for (const key of VOICE_KEYS) expect(SPEAK_KEYS).toContain(key);
   });
 
-  // The restraint is the product decision, so it gets a test.
-  it('covers only the four moments worth interrupting a room for', () => {
-    expect(VOICE_KEYS.size).toBe(4);
-    for (const key of ['level_up', 'evolved', 'check_fixed_hard', 'fixed_together'] as const) {
+  // The restraint is the product decision, so it gets a test. Everything that
+  // speaks aloud must be a once-ever moment; the negative list is the half
+  // that actually carries the restraint.
+  it('covers only the moments worth interrupting a room for', () => {
+    expect(VOICE_KEYS.size).toBe(8);
+    for (const key of [
+      'level_up',
+      'evolved',
+      'max_level',
+      'milestone_commits',
+      'milestone_merges',
+      'milestone_fixes',
+      'check_fixed_hard',
+      'fixed_together',
+    ] as const) {
       expect(VOICE_KEYS.has(key)).toBe(true);
     }
-    for (const key of ['commit', 'idle', 'tests_passed', 'check_broke'] as const) {
+    for (const key of ['commit', 'idle', 'at_peace', 'tests_passed', 'check_broke'] as const) {
       expect(VOICE_KEYS.has(key)).toBe(false);
     }
   });

@@ -32,6 +32,7 @@ import { deriveState, weeklyTotals } from '../../core/xp.js';
 import { scanAll } from '../../adapters/git.js';
 import { drainShellLog } from '../../adapters/terminal.js';
 import { logError, readOrCreateConfig, writeConfig } from '../../state/config.js';
+import { evolutionFor, rememberEvolution } from '../../state/identity.js';
 import { appendEvents, readEvents } from '../../state/log.js';
 import { freshQuip } from '../statusline.js';
 
@@ -46,14 +47,20 @@ function buildPayload(): unknown {
   // Cheap, and it makes the page live: commit in another terminal and the
   // creature reacts on the next poll.
   try {
-    appendEvents([...drainShellLog(), ...scanAll()]);
+    appendEvents(drainShellLog());
+    // Writes its own findings; see scanAll.
+    scanAll();
   } catch (error) {
     logError('web:ingest', error);
   }
 
   const config = readOrCreateConfig();
   const events = readEvents();
-  const state = deriveState(events, { species: config.species });
+  const state = deriveState(events, {
+    species: config.species,
+    evolution: evolutionFor(config, events),
+  });
+  rememberEvolution(events, state);
   const form = formIdentity(state.species, state.stage, state.branch);
 
   const grid = gridFor(state.species, state.stage, state.branch);

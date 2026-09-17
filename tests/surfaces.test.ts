@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { TONE_BANKS, TONES, type ToneName } from '../src/core/tone.js';
-import { deriveState } from '../src/core/xp.js';
+import { deriveState, EVOLVE_LEVEL, totalXpForLevel, XP_TABLE } from '../src/core/xp.js';
 import { writeRenderCache } from '../src/state/config.js';
 import { bar, renderStatusCard } from '../src/ui/status-card.js';
 import { freshQuip, miniBar, QUIP_TTL_MS, renderStatusline } from '../src/ui/statusline.js';
+import { AMBIENT_BUCKET_MS } from '../src/core/tone.js';
 import { startWidget } from '../src/ui/web/server.js';
-import { series, useTempHome } from './helpers.js';
+import { cappedEvents, series, useTempHome } from './helpers.js';
 
 let home: ReturnType<typeof useTempHome>;
 
@@ -73,6 +74,79 @@ describe('the statusline', () => {
 
   it('renders an empty log without throwing', () => {
     expect(() => renderStatusline({ events: [], species: 'wisp' })).not.toThrow();
+  });
+});
+
+describe('the statusline at the cap', () => {
+  // Far enough past the last event that the idle line is not in play, since
+  // the fixture's merges land an hour apart.
+  const CAPPED = cappedEvents();
+  const AT_CAP = new Date('2026-09-01T12:00:00Z');
+
+  const capLine = (tone: ToneName = 'deadpan', now: Date = AT_CAP): string =>
+    renderStatusline({ events: CAPPED, species: 'sprout', tone, now });
+
+  const spoken = (line: string): string | undefined => /"([^"]+)"/.exec(line)?.[1];
+
+  it('reaches the cap at all', () => {
+    expect(deriveState(CAPPED).nextLevelAt).toBeNull();
+  });
+
+  // The bug this whole change exists for: a bar pinned full is indistinguishable
+  // from one that rounded up, so at the cap it reads as broken rather than won.
+  it('stops showing a progress bar once there is nothing to progress to', () => {
+    expect(capLine()).not.toMatch(/[▓░]/);
+  });
+
+  it('keeps talking with no hook quip and a warm log', () => {
+    const line = capLine();
+    expect(TONE_BANKS.deadpan.at_peace).toContain(spoken(line));
+  });
+
+  it('talks in the tone it was given', () => {
+    expect(TONE_BANKS.gremlin.at_peace).toContain(spoken(capLine('gremlin')));
+  });
+
+  // The anti-flicker guarantee. This function re-runs many times a minute.
+  it('does not change while you are looking at it', () => {
+    const repeated = Array.from({ length: 11 }, () => capLine());
+    expect(new Set(repeated).size).toBe(1);
+    const fivePast = new Date('2026-09-01T12:05:00Z');
+    const fiftyPast = new Date('2026-09-01T12:50:00Z');
+    expect(capLine('deadpan', fiftyPast)).toBe(capLine('deadpan', fivePast));
+  });
+
+  it('has moved on an hour later', () => {
+    const later = new Date(AT_CAP.getTime() + AMBIENT_BUCKET_MS);
+    expect(capLine('deadpan', later)).not.toBe(capLine());
+    expect(TONE_BANKS.deadpan.at_peace).toContain(spoken(capLine('deadpan', later)));
+  });
+
+  it('still yields to a fresh hook quip', () => {
+    const line = renderStatusline({
+      events: CAPPED,
+      species: 'sprout',
+      tone: 'deadpan',
+      now: AT_CAP,
+      quip: 'noted.',
+    });
+    expect(line).toContain('"noted."');
+  });
+
+  it('still yields to the idle line after days of silence', () => {
+    const muchLater = new Date('2026-12-01T12:00:00Z');
+    expect(TONE_BANKS.zen.idle).toContain(spoken(capLine('zen', muchLater)));
+  });
+
+  it('fits on one line in every tone, across a whole cycle', () => {
+    for (const tone of TONES) {
+      for (let i = 0; i < 8; i++) {
+        const now = new Date(AT_CAP.getTime() + i * AMBIENT_BUCKET_MS);
+        const line = capLine(tone, now);
+        expect(line, `${tone}@${i}`).not.toContain('\n');
+        expect(line.length, `${tone}@${i}: ${line}`).toBeLessThan(80);
+      }
+    }
   });
 });
 
@@ -171,12 +245,36 @@ describe('the status card', () => {
   });
 
   it('marks the evolved branch', () => {
-    const evolved = [...series('pr_merged', 40, { hour: 2 }), ...series('commit', 12, { hour: 2 })];
+    // Derived from the curve rather than hardcoded: this is a test about
+    // rendering an evolved branch, and it should not quietly become a test
+    // about XP arithmetic the next time the curve moves.
+    const merges = Math.ceil(totalXpForLevel(EVOLVE_LEVEL) / XP_TABLE.pr_merged) + 1;
+    const evolved = [...series('pr_merged', merges, { hour: 2 }), ...series('commit', 12, { hour: 2 })];
     const state = deriveState(evolved, { species: 'wisp' });
     const card = renderStatusCard({ state, events: evolved, tone: 'hype' });
     expect(state.branch).not.toBeNull();
     expect(card).toContain('evolved:');
     expect(card).toContain('←');
+  });
+
+  it('states the ending plainly once there are no levels left', () => {
+    const capped = cappedEvents();
+    const state = deriveState(capped, { species: 'ember' });
+    const card = renderStatusCard({
+      state,
+      events: capped,
+      tone: 'deadpan',
+      now: new Date('2026-09-01T12:00:00Z'),
+    });
+    expect(state.nextLevelAt).toBeNull();
+    expect(card).toContain('the last one');
+    expect(card).toContain('you finished it');
+    // The part that was actually asked for: nobody should be left waiting for
+    // an unlock that is never coming.
+    expect(card).toContain('nothing else is waiting to unlock');
+    // And it must not still be promising a next level.
+    expect(card).not.toMatch(/to Lv\.\d+/);
+    expect(TONE_BANKS.deadpan.at_peace).toContain(/"([^"]+)"/.exec(card)?.[1]);
   });
 
   it('warns about unreadable log lines instead of hiding them', () => {

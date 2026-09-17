@@ -185,6 +185,21 @@ describe('evolution', () => {
     return [...extra, ...series('pr_merged', merges, {}, new Date('2026-07-20T09:00:00Z'))];
   }
 
+  // `toEvolution` pads with daytime merges to reach the level, and a steeper
+  // curve means more of them. That looks like it should eventually drown the
+  // six night commits and flip the branch — it cannot. `night` is
+  // nightCommits/commits.length, and merges are not commits, so it stays at
+  // 1.0 no matter how many arrive; merges feed only `speed`, which asymptotes
+  // near 0.71. Proved here so the next retune does not have to re-derive it.
+  it('cannot be out-scored by the merges used to reach the level', () => {
+    const scores = scoreHabits(toEvolution(commitsAt([2, 3, 23, 1, 2, 3])));
+    expect(scores.night).toBe(1);
+    const rivals = Object.entries(scores)
+      .filter(([name]) => name !== 'night')
+      .map(([, value]) => value);
+    expect(Math.max(...rivals)).toBeLessThan(1);
+  });
+
   it('locks a branch once the creature reaches the evolve level', () => {
     const state = deriveState(toEvolution(commitsAt([2, 3, 23, 1, 2, 3])));
     expect(state.level).toBeGreaterThanOrEqual(EVOLVE_LEVEL);

@@ -26,15 +26,21 @@ import { ensureHome } from '../state/log.js';
 import { speakScriptPath } from '../state/paths.js';
 
 /**
- * The four moments worth interrupting a room for.
+ * The moments worth interrupting a room for.
  *
- * `level_up` and `evolved` already bypass the text cooldown in hook.ts, and the
- * two fix keys are the ones that acknowledge a struggle. Everything else —
- * commits especially — would be chatter.
+ * `level_up`, `evolved` and `max_level` already bypass the text cooldown in
+ * hook.ts, and the two fix keys are the ones that acknowledge a struggle.
+ * Milestones join them because they are rarer than levelling — roughly
+ * twenty-seven in a whole familiar's life — and are the same class of moment.
+ * Everything else — commits especially — would be chatter.
  */
 export const VOICE_KEYS: ReadonlySet<SpeakKey> = new Set<SpeakKey>([
   'level_up',
   'evolved',
+  'max_level',
+  'milestone_commits',
+  'milestone_merges',
+  'milestone_fixes',
   'check_fixed_hard',
   'fixed_together',
 ]);

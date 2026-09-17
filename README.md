@@ -12,7 +12,7 @@ A witch's *familiar* for your git + AI-coding life. It watches your commits, you
 
 **XP comes from outcomes, never from activity.** Burning tokens is worth exactly zero. So is running a test suite that was already green — nothing changed, so nothing happened.
 
-What counts is a **change of state**: a commit, a merged PR, and above all a check that *stopped being broken*. Run your tests twenty times while debugging and you earn nothing for nineteen of them; the twentieth, the one that goes from red to green, is the whole point.
+What counts is a **change of state**: a commit (5), a merged PR (40), and above all a check that *stopped being broken* (20, more if it fought back). Run your tests twenty times while debugging and you earn nothing for nineteen of them; the twentieth, the one that goes from red to green, is the whole point.
 
 Git can never see that. Git only records the finished result — you never commit the broken state. Watching the transition is what the shell integration is for.
 
@@ -164,6 +164,57 @@ trusts scripts written locally. Check where you stand with `Get-ExecutionPolicy 
 Three species × seven branches = **21 final forms**. The last four need something reporting check outcomes — the shell integration or the Claude Code hook. On git alone you get a complete but smaller tree, never a branch you can't reach.
 
 A note on 🪄 Conjurer: it rewards *fixes made with an agent*, and a fix is worth exactly the same either way. Using an AI tool more can never earn you more XP — only fixing more things can.
+
+**Level** runs 1 to 100, and the cost of a level grows as you climb — every one
+costs 16 XP more than the one before it. The cap is years of real work away. It
+is meant to be far away.
+
+Only **your** work counts. In a shared repo the scan compares each new commit's
+author with that repo's `git config user.email` (through `.mailmap`, if the repo
+has one) and skips everybody else's. A merged pull request counts for whoever
+wrote most of it, not whoever pressed merge. A merge that isn't a pull request —
+`Merge branch 'develop' into feature` — counts for nobody, because the work it
+brings in is already counted commit by commit. Check the address with
+`git config user.email` if your familiar seems quiet.
+
+This applies to scans from this version on. A log written by an earlier version
+still holds whatever it counted back then.
+
+**Your form is kept.** Once a familiar evolves, its branch is saved, so a later
+change to how levels are counted can move your level but never take back the
+creature you became.
+
+## Landmarks
+
+Levels are not the only thing that arrives. Your first merge, your tenth, your
+hundredth; your first thing un-broken and your thousandth commit — landmarks land
+on **counts**, and the creature says so.
+
+They are spaced logarithmically rather than every-N, because every-N is wrong at
+both ends: a newcomer would wait weeks for their first, and somebody six hundred
+commits in would get one every fortnight forever, which is a schedule, not an
+event. About 27 arrive over a familiar's whole life.
+
+Counts, never percentages — a threshold on "share of your work that is tests"
+could be crossed by doing *less of everything else*, and that is activity-gaming
+through a side door.
+
+## When the ladder ends
+
+At level 100 there is nothing further. No prestige, no second ladder, no
+new thing waiting to unlock — and `familiar status` says so in those words,
+because the worst ending is one you cannot tell apart from a bug.
+
+What does not end is the creature. The progress bar is replaced by a mark that
+keeps moving, and the familiar picks up an ambient line in your tone that
+changes every hour:
+
+```
+⚡ Lv.100 ··✦·· · "no progress bar. surprisingly freeing."
+```
+
+It still reacts to everything it reacted to before — commits, merges, breaks,
+and above all fixes. Only the number stops.
 
 ## Privacy
 
