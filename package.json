@@ -1,6 +1,6 @@
 {
   "name": "witch-familiar",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A local-first companion creature that levels up on what you actually fix. Reads your git history and check outcomes; nothing leaves your machine.",
   "type": "module",
   "license": "MIT",
