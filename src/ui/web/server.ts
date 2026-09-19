@@ -32,7 +32,7 @@ import { deriveState, weeklyTotals } from '../../core/xp.js';
 import { scanAll } from '../../adapters/git.js';
 import { drainShellLog } from '../../adapters/terminal.js';
 import { logError, readOrCreateConfig, writeConfig } from '../../state/config.js';
-import { evolutionFor, rememberEvolution } from '../../state/identity.js';
+import { identityFor, rememberEvolution } from '../../state/identity.js';
 import { appendEvents, readEvents } from '../../state/log.js';
 import { freshQuip } from '../statusline.js';
 
@@ -56,10 +56,7 @@ function buildPayload(): unknown {
 
   const config = readOrCreateConfig();
   const events = readEvents();
-  const state = deriveState(events, {
-    species: config.species,
-    evolution: evolutionFor(config, events),
-  });
+  const state = deriveState(events, { species: config.species, ...identityFor(config, events) });
   rememberEvolution(events, state);
   const form = formIdentity(state.species, state.stage, state.branch);
 

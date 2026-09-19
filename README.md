@@ -93,9 +93,10 @@ the colour.
 
 ## Hearing it
 
-`familiar voice on` speaks four moments out loud: a level up, an evolution, a fix that took
-several attempts, and a fix you made alongside an agent. Nothing else — a footer line you
-can ignore is not the same kind of interruption as a voice in the room.
+`familiar voice on` speaks only the moments worth interrupting a room for: a level up, either
+evolution, reaching the last level, a landmark count, a fix that took several attempts, and a
+fix you made alongside an agent. Nothing else — not commits, not ordinary passing tests. A
+footer line you can ignore is not the same kind of interruption as a voice in the room.
 
 It uses whatever your OS already has (SAPI on Windows, `say` on macOS, `spd-say` on Linux),
 so nothing is downloaded and nothing is sent anywhere. A machine with no speech synthesiser
@@ -183,6 +184,17 @@ still holds whatever it counted back then.
 **Your form is kept.** Once a familiar evolves, its branch is saved, so a later
 change to how levels are counted can move your level but never take back the
 creature you became.
+
+**And once, much later, it can change.** Level 15 decides your branch on a
+couple of weeks of evidence. If years on your work has genuinely become
+something else, a familiar past Lv.50 evolves a second time — into the branch
+your *recent* work points at, judged on the same amount of evidence the first
+decision had. It happens at most once in a familiar's life, it is driven by what
+you do rather than by reaching any level, and it can happen long after Lv.100 —
+it is the one thing still ahead of a familiar that has finished the ladder.
+
+Nothing is owed: work the same way for years and you stay who you are, which is
+the honest answer rather than a withheld prize.
 
 ## Landmarks
 

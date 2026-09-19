@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { BRANCH_LABELS } from '../src/core/habits.js';
 import {
   AMBIENT_BUCKET_MS,
   ambientCycle,
@@ -46,6 +47,21 @@ describe('tone banks', () => {
         for (const line of TONE_BANKS[tone][key]) {
           expect(secondPersonJudgement.test(line), `${tone}.${key}: "${line}"`).toBe(false);
         }
+      }
+    }
+  });
+});
+
+describe('the second evolution lines', () => {
+  // The design says the replaced form leaves no visible trace. That has to
+  // hold in the words too, not just in the data.
+  it('never name a branch or hint at the form they replaced', () => {
+    const labels = Object.values(BRANCH_LABELS).map((l) => l.toLowerCase());
+    for (const tone of TONES) {
+      for (const line of TONE_BANKS[tone].reevolved) {
+        const text = line.toLowerCase();
+        for (const label of labels) expect(text, `${tone}: ${line}`).not.toContain(label);
+        expect(text, `${tone}: ${line}`).not.toMatch(/was a|used to be|no longer a/);
       }
     }
   });

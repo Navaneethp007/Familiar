@@ -147,6 +147,26 @@ export interface ColdGreenRecord {
   eventKey: string;
 }
 
+/**
+ * A green reached with no live prior status — what `firstGreens` counts.
+ *
+ * Recorded rather than merely tallied so that a *window* can be taken over the
+ * transitions a whole-log fold produced. Folding a sliced log instead would
+ * reclassify a green whose red fell outside the slice as a first green, moving
+ * score from firefighter straight to one_shot — the two are exact complements
+ * on their share term in habits.ts.
+ *
+ * Not the same thing as ColdGreenRecord, which fires once per slot ever and is
+ * therefore a lossy subset of these. See the note there.
+ */
+export interface FirstGreenRecord {
+  kind: CheckKind;
+  repoPath: string;
+  agent: Agent;
+  at: number;
+  eventKey: string;
+}
+
 export interface CheckFoldResult {
   /**
    * XP earned *at* a given event. Returned per-event rather than as a total so
@@ -155,6 +175,8 @@ export interface CheckFoldResult {
    */
   xpByEventKey: Map<string, number>;
   fixes: FixRecord[];
+  /** One per clean first pass, in log order. `firstGreens` is its length. */
+  firstGreenRecords: FirstGreenRecord[];
   /** Checks that passed with no prior red — clean first passes. */
   firstGreens: number;
   /** One entry per slot that first went green cold. Never scored. */
@@ -191,7 +213,7 @@ export function foldChecks(events: readonly FamiliarEvent[]): CheckFoldResult {
   // Note it is set on the fix path too, which is what stops a fix from being
   // announced a second time as a first green.
   const everGreen = new Set<string>();
-  let firstGreens = 0;
+  const firstGreenRecords: FirstGreenRecord[] = [];
   let failures = 0;
   let redundantGreens = 0;
 
@@ -228,7 +250,13 @@ export function foldChecks(events: readonly FamiliarEvent[]): CheckFoldResult {
         xp,
       });
     } else if (!known) {
-      firstGreens++;
+      firstGreenRecords.push({
+        kind: obs.kind,
+        repoPath: obs.repoPath,
+        agent: obs.agent,
+        at: obs.at,
+        eventKey: obs.eventKey,
+      });
       xpByEventKey.set(obs.eventKey, FIRST_GREEN_XP);
       if (!everGreen.has(slot)) {
         coldGreenRecords.push({
@@ -249,7 +277,15 @@ export function foldChecks(events: readonly FamiliarEvent[]): CheckFoldResult {
     everGreen.add(slot);
   }
 
-  return { xpByEventKey, fixes, coldGreenRecords, firstGreens, failures, redundantGreens };
+  return {
+    xpByEventKey,
+    fixes,
+    coldGreenRecords,
+    firstGreenRecords,
+    firstGreens: firstGreenRecords.length,
+    failures,
+    redundantGreens,
+  };
 }
 
 // --- summaries used by branch scoring and the surfaces ---------------------
@@ -268,6 +304,51 @@ export interface CheckSummary {
   coldFirstGreens: number;
   /** Most recent slot to go green cold for the first time. */
   lastColdGreen: ColdGreenRecord | null;
+}
+
+/**
+ * The only check facts habit scoring reads. `CheckSummary` satisfies it
+ * structurally, so every existing caller keeps working unchanged.
+ */
+export interface HabitCheckCounts {
+  fixes: number;
+  firstGreens: number;
+  fixesByKind: Record<CheckKind, number>;
+  fixesWithAgent: number;
+}
+
+/**
+ * Habit counts restricted to the transitions triggered by `keys`.
+ *
+ * `result` MUST come from a fold over the whole log; this filters its output.
+ * Folding a slice and summarising that is the bug this function exists to
+ * avoid — see FirstGreenRecord.
+ *
+ * Membership is by event key rather than a timestamp cutoff on purpose: a git
+ * scan routinely emits many commits inside the same second, so a `since`
+ * boundary would have real ties exactly where precision matters.
+ *
+ * Deliberately narrower than CheckSummary. A windowed summary would have to lie
+ * about `failures` and `redundantGreens`, which have no records to filter, and
+ * about `lastFix`/`lastColdGreen`, which mean "most recent ever" to the hook.
+ */
+export function countChecksIn(
+  result: CheckFoldResult,
+  keys: ReadonlySet<string>,
+): HabitCheckCounts {
+  const fixesByKind: Record<CheckKind, number> = { test: 0, build: 0, typecheck: 0, lint: 0 };
+  let fixes = 0;
+  let fixesWithAgent = 0;
+
+  for (const fix of result.fixes) {
+    if (!keys.has(fix.eventKey)) continue;
+    fixes++;
+    fixesByKind[fix.kind]++;
+    if (fix.agent !== null) fixesWithAgent++;
+  }
+
+  const firstGreens = result.firstGreenRecords.filter((r) => keys.has(r.eventKey)).length;
+  return { fixes, firstGreens, fixesByKind, fixesWithAgent };
 }
 
 export function summariseChecks(result: CheckFoldResult): CheckSummary {

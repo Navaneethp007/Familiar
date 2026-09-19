@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  countChecksIn,
   FIRST_GREEN_XP,
   FIX_BASE_XP,
   fixXp,
@@ -337,5 +338,125 @@ describe('a slot going green cold for the first time', () => {
     for (let i = 0; i < 5; i++) {
       expect(foldChecks(events).coldGreenRecords).toEqual(first);
     }
+  });
+});
+
+describe('first greens as records', () => {
+  it('records one per first green, matching the count', () => {
+    const events = [check(true), check(true, { repo: '/repo/b' }), check(true, { kind: 'lint' })];
+    const result = foldChecks(events);
+    expect(result.firstGreenRecords).toHaveLength(result.firstGreens);
+    expect(result.firstGreens).toBe(3);
+  });
+
+  it('carries where and when each one happened', () => {
+    const green = check(true, { kind: 'build', repo: '/repo/z', agent: 'claude-code' });
+    const [record] = foldChecks([green]).firstGreenRecords;
+    expect(record?.kind).toBe('build');
+    expect(record?.repoPath).toBe('/repo/z');
+    expect(record?.agent).toBe('claude-code');
+    expect(record?.eventKey).toBe(green.key);
+    expect(record?.at).toBe(Date.parse(green.t));
+  });
+
+  it('counts a fix as a fix, never as a first green', () => {
+    const result = foldChecks([check(false), check(true)]);
+    expect(result.firstGreenRecords).toHaveLength(0);
+    expect(result.fixes).toHaveLength(1);
+  });
+
+  // coldGreenRecords fires once per slot ever; firstGreens recurs after each
+  // staleness gap. The first can therefore never stand in for the second.
+  it('is a superset of the cold greens', () => {
+    const events = [
+      check(true),
+      check(true, { minutesLater: 60 * 48 }),
+      check(true, { repo: '/repo/b' }),
+    ];
+    const result = foldChecks(events);
+    const first = new Set(result.firstGreenRecords.map((r) => r.eventKey));
+    for (const cold of result.coldGreenRecords) expect(first.has(cold.eventKey)).toBe(true);
+    expect(result.firstGreenRecords.length).toBeGreaterThan(result.coldGreenRecords.length);
+  });
+});
+
+describe('counting checks inside a window', () => {
+  const keysOf = (events: readonly FamiliarEvent[]): Set<string> =>
+    new Set(events.map((e) => e.key));
+
+  /**
+   * The test this whole design exists for.
+   *
+   * `foldChecks` carries per-slot state across events, so folding a SUFFIX
+   * reclassifies: a green whose red fell before the window looks like a first
+   * green, and a green on an already-green slot looks like one too. Both move
+   * score from firefighter to one_shot, which are exact complements on their
+   * share term. Filtering a whole-log fold keeps the classification the full
+   * history gave it.
+   */
+  it('keeps the classification the whole log gave, where folding a slice would not', () => {
+    const red = check(false);
+    const fixed = check(true);
+    const otherRepo = check(true, { repo: '/repo/b' });
+    const again = check(true);
+    const all = [red, fixed, otherRepo, again];
+    const window = [otherRepo, again];
+
+    const windowed = countChecksIn(foldChecks(all), keysOf(window));
+    expect(windowed.fixes).toBe(0);
+    expect(windowed.firstGreens).toBe(1);
+
+    // What the naive approach would have said, and why it is wrong: the repeat
+    // green on /repo/a becomes a second "first green".
+    const naive = summariseChecks(foldChecks(window));
+    expect(naive.firstGreens).toBe(2);
+    expect(naive.firstGreens).not.toBe(windowed.firstGreens);
+  });
+
+  it('keeps a fix a fix when only its green is inside the window', () => {
+    const red = check(false);
+    const green = check(true);
+    const windowed = countChecksIn(foldChecks([red, green]), keysOf([green]));
+    expect(windowed.fixes).toBe(1);
+    expect(windowed.firstGreens).toBe(0);
+    expect(summariseChecks(foldChecks([green])).fixes).toBe(0);
+  });
+
+  it('agrees with the full summary when the window is everything', () => {
+    const events = [
+      check(false),
+      check(true),
+      check(true, { repo: '/repo/b', agent: 'claude-code' }),
+      check(false, { kind: 'lint' }),
+      check(true, { kind: 'lint' }),
+    ];
+    const result = foldChecks(events);
+    const whole = summariseChecks(result);
+    const windowed = countChecksIn(result, keysOf(events));
+    expect(windowed.fixes).toBe(whole.fixes);
+    expect(windowed.firstGreens).toBe(whole.firstGreens);
+    expect(windowed.fixesWithAgent).toBe(whole.fixesWithAgent);
+    expect(windowed.fixesByKind).toEqual(whole.fixesByKind);
+  });
+
+  it('counts nothing for an empty window', () => {
+    const result = foldChecks([check(false), check(true)]);
+    const windowed = countChecksIn(result, new Set<string>());
+    expect(windowed.fixes).toBe(0);
+    expect(windowed.firstGreens).toBe(0);
+    expect(windowed.fixesByKind).toEqual({ test: 0, build: 0, typecheck: 0, lint: 0 });
+  });
+
+  it('splits fixes by kind and agent inside the window', () => {
+    const early = [check(false, { kind: 'lint' }), check(true, { kind: 'lint' })];
+    const late = [
+      check(false, { kind: 'build', agent: 'claude-code' }),
+      check(true, { kind: 'build', agent: 'claude-code' }),
+    ];
+    const windowed = countChecksIn(foldChecks([...early, ...late]), keysOf(late));
+    expect(windowed.fixes).toBe(1);
+    expect(windowed.fixesWithAgent).toBe(1);
+    expect(windowed.fixesByKind.build).toBe(1);
+    expect(windowed.fixesByKind.lint).toBe(0);
   });
 });

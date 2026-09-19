@@ -54,6 +54,8 @@ export interface StatuslineInput {
   now?: Date;
   /** An evolution already earned. See state/identity.ts. */
   evolution?: EvolutionRecord | null;
+  /** A second evolution, if one has happened. Replaces the first outright. */
+  reevolution?: EvolutionRecord | null;
 }
 
 /**
@@ -75,6 +77,7 @@ export function renderStatusline(input: StatuslineInput): string {
     species: input.species,
     now,
     evolution: input.evolution ?? null,
+    reevolution: input.reevolution ?? null,
   });
   const form = formIdentity(state.species, state.stage, state.branch);
   const tone = input.tone ?? 'deadpan';

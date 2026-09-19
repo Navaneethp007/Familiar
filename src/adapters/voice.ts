@@ -30,6 +30,7 @@ import { speakScriptPath } from '../state/paths.js';
  *
  * `level_up`, `evolved` and `max_level` already bypass the text cooldown in
  * hook.ts, and the two fix keys are the ones that acknowledge a struggle.
+ * `reevolved` is the rarest of the lot — at most once in a whole life.
  * Milestones join them because they are rarer than levelling — roughly
  * twenty-seven in a whole familiar's life — and are the same class of moment.
  * Everything else — commits especially — would be chatter.
@@ -37,6 +38,7 @@ import { speakScriptPath } from '../state/paths.js';
 export const VOICE_KEYS: ReadonlySet<SpeakKey> = new Set<SpeakKey>([
   'level_up',
   'evolved',
+  'reevolved',
   'max_level',
   'milestone_commits',
   'milestone_merges',

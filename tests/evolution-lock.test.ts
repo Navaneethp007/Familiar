@@ -12,7 +12,7 @@ import {
   XP_TABLE,
 } from '../src/core/xp.js';
 import { defaultConfig, readConfig, registerRepo, writeConfig } from '../src/state/config.js';
-import { evolutionFor, rememberEvolution } from '../src/state/identity.js';
+import { identityFor, rememberEvolution, rememberReevolution } from '../src/state/identity.js';
 import { series, useTempHome } from './helpers.js';
 
 /**
@@ -99,7 +99,7 @@ describe('deriveState with a locked evolution', () => {
 
 describe('lockEvolution', () => {
   it('gives a pre-retune familiar back the form it evolved into', () => {
-    const locked = lockEvolution({ evolution: null, curve: 1 }, IN_THE_BAND);
+    const locked = lockEvolution({ evolution: null, reevolution: null, curve: 1 }, IN_THE_BAND);
     expect(locked.curve).toBe(CURVE_VERSION);
     expect(locked.evolution).toEqual(findEvolution(IN_THE_BAND, LEGACY_EVOLVE_XP));
     expect(locked.evolution).not.toBeNull();
@@ -107,8 +107,9 @@ describe('lockEvolution', () => {
 
   it('does not invent an evolution for somebody who never had one', () => {
     const young = mergesWorth(200);
-    expect(lockEvolution({ evolution: null, curve: 1 }, young)).toEqual({
+    expect(lockEvolution({ evolution: null, reevolution: null, curve: 1 }, young)).toEqual({
       evolution: null,
+      reevolution: null,
       curve: CURVE_VERSION,
     });
   });
@@ -117,13 +118,20 @@ describe('lockEvolution', () => {
   // A new one must meet the current threshold, or the retune would be undone
   // for everybody who starts after it.
   it('never applies the retired threshold to a familiar already on the current curve', () => {
-    expect(lockEvolution({ evolution: null, curve: CURVE_VERSION }, IN_THE_BAND).evolution).toBeNull();
+    expect(
+      lockEvolution({ evolution: null, reevolution: null, curve: CURVE_VERSION }, IN_THE_BAND)
+        .evolution,
+    ).toBeNull();
   });
 
   it('keeps whatever was already locked', () => {
     const stored = { branch: 'one_shot' as const, eventKey: 'k' };
-    expect(lockEvolution({ evolution: stored, curve: 1 }, IN_THE_BAND).evolution).toEqual(stored);
-    expect(lockEvolution({ evolution: stored, curve: CURVE_VERSION }, []).evolution).toEqual(stored);
+    expect(
+      lockEvolution({ evolution: stored, reevolution: null, curve: 1 }, IN_THE_BAND).evolution,
+    ).toEqual(stored);
+    expect(
+      lockEvolution({ evolution: stored, reevolution: null, curve: CURVE_VERSION }, []).evolution,
+    ).toEqual(stored);
   });
 });
 
@@ -158,7 +166,7 @@ describe('the evolution on disk', () => {
     const { curve: _curve, ...old } = defaultConfig();
     writeConfig(old as never);
     const config = readConfig()!;
-    expect(evolutionFor(config, IN_THE_BAND)).not.toBeNull();
+    expect(identityFor(config, IN_THE_BAND).evolution).not.toBeNull();
     expect(readConfig()?.curve).toBe(1);
   });
 
@@ -194,5 +202,124 @@ describe('the evolution on disk', () => {
     const before = readConfig();
     rememberEvolution(IN_THE_BAND, deriveState(IN_THE_BAND));
     expect(readConfig()).toEqual(before);
+  });
+});
+
+describe('a second evolution', () => {
+  const FIRST = { branch: 'night_owl' as const, eventKey: 'first' };
+  const SECOND = { branch: 'conjurer' as const, eventKey: 'second' };
+
+  describe('in the fold', () => {
+    it('is the branch, and the first one leaves no trace', () => {
+      const state = deriveState(IN_THE_BAND, { evolution: FIRST, reevolution: SECOND });
+      expect(state.branch).toBe('conjurer');
+      expect(state.stage).toBe('final');
+      expect(JSON.stringify(state)).not.toContain('night_owl');
+    });
+
+    it('holds the form at any level, exactly as the first does', () => {
+      const state = deriveState(mergesWorth(50), { evolution: FIRST, reevolution: SECOND });
+      expect(state.level).toBeLessThan(EVOLVE_LEVEL);
+      expect(state.branch).toBe('conjurer');
+      expect(state.stage).toBe('final');
+    });
+
+    it('leaves the decision to the fold when nothing is handed in', () => {
+      const plain = deriveState(IN_THE_BAND);
+      expect(deriveState(IN_THE_BAND, { reevolution: null }).branch).toBe(plain.branch);
+    });
+
+    it('resolves the moment it happened from the stored key', () => {
+      const key = IN_THE_BAND[7]!.key;
+      const state = deriveState(IN_THE_BAND, {
+        evolution: FIRST,
+        reevolution: { branch: 'refactorer', eventKey: key },
+      });
+      expect(state.evolvedOn?.key).toBe(key);
+    });
+  });
+
+  describe('on disk', () => {
+    let home: ReturnType<typeof useTempHome>;
+    beforeEach(() => {
+      home = useTempHome();
+    });
+    afterEach(() => {
+      home.cleanup();
+    });
+
+    it('starts empty', () => {
+      expect(defaultConfig().reevolution).toBeNull();
+    });
+
+    it('reads a config written before it existed as empty', () => {
+      const { reevolution: _reevolution, ...old } = defaultConfig();
+      writeConfig(old as never);
+      expect(readConfig()?.reevolution).toBeNull();
+    });
+
+    it('discards a branch it does not recognise', () => {
+      writeConfig({
+        ...defaultConfig(),
+        evolution: FIRST,
+        reevolution: { branch: 'archmage', eventKey: 'k' } as never,
+      });
+      expect(readConfig()?.reevolution).toBeNull();
+      expect(readConfig()?.evolution).toEqual(FIRST);
+    });
+
+    // The pairing is incoherent, but `evolution` re-derives from the log and
+    // this does not. Dropping the unrecoverable half because the recoverable
+    // half was unreadable would spend a once-in-a-lifetime chance silently.
+    it('keeps a second evolution even when the first is unreadable', () => {
+      writeConfig({
+        ...defaultConfig(),
+        evolution: { branch: 'archmage', eventKey: 'k' } as never,
+        reevolution: SECOND,
+      });
+      expect(readConfig()?.evolution).toBeNull();
+      expect(readConfig()?.reevolution).toEqual(SECOND);
+    });
+
+    it('still refuses to grant a second evolution to a familiar with no first', () => {
+      writeConfig(defaultConfig());
+      rememberReevolution(SECOND);
+      expect(readConfig()?.reevolution).toBeNull();
+    });
+
+    it('hands both halves to the fold', () => {
+      writeConfig({ ...defaultConfig(), evolution: FIRST, reevolution: SECOND });
+      expect(identityFor(readConfig()!, IN_THE_BAND)).toEqual({
+        evolution: FIRST,
+        reevolution: SECOND,
+      });
+    });
+
+    it('saves one, leaving the first untouched', () => {
+      writeConfig({ ...defaultConfig(), evolution: FIRST });
+      rememberReevolution(SECOND);
+      expect(readConfig()?.reevolution).toEqual(SECOND);
+      expect(readConfig()?.evolution).toEqual(FIRST);
+    });
+
+    it('happens once in a lifetime, and the rule lives at the write', () => {
+      writeConfig({ ...defaultConfig(), evolution: FIRST, reevolution: SECOND });
+      rememberReevolution({ branch: 'firefighter', eventKey: 'third' });
+      expect(readConfig()?.reevolution).toEqual(SECOND);
+    });
+
+    it('refuses one for a familiar that never had a first', () => {
+      writeConfig(defaultConfig());
+      rememberReevolution(SECOND);
+      expect(readConfig()?.reevolution).toBeNull();
+    });
+
+    it('does not clobber anything written since the caller read config', () => {
+      writeConfig({ ...defaultConfig(), evolution: FIRST });
+      registerRepo('/somewhere/new');
+      rememberReevolution(SECOND);
+      expect(readConfig()?.repos).toContain('/somewhere/new');
+      expect(readConfig()?.reevolution).toEqual(SECOND);
+    });
   });
 });

@@ -28,7 +28,7 @@ import {
 import { POLICY_FIX_COMMAND } from './shell/policy.js';
 import { cliEntrypoint, uninstallClaudeIntegration } from './install.js';
 import { logError, readConfig, readOrCreateConfig, writeConfig } from './state/config.js';
-import { evolutionFor, rememberEvolution } from './state/identity.js';
+import { identityFor, rememberEvolution } from './state/identity.js';
 import { appendEvents, ensureHome, readEventsDetailed } from './state/log.js';
 import { claudeSettingsPath, familiarHome } from './state/paths.js';
 import { blinkSprite } from './ui/animate.js';
@@ -79,10 +79,7 @@ function cmdStatus(argv: string[]): void {
   }
 
   const { events, skipped } = readEventsDetailed();
-  const state = deriveState(events, {
-    species: config.species,
-    evolution: evolutionFor(config, events),
-  });
+  const state = deriveState(events, { species: config.species, ...identityFor(config, events) });
   rememberEvolution(events, state);
 
   out(
@@ -123,7 +120,7 @@ function cmdStatusline(): void {
         tone: config.tone,
         quip: freshQuip(),
         // Worked out, never saved: this command must not write.
-        evolution: evolutionFor(config, events),
+        ...identityFor(config, events),
       }),
     );
   } catch (error) {
@@ -231,10 +228,7 @@ async function cmdLook(argv: string[]): Promise<void> {
   }
 
   const { events } = readEventsDetailed();
-  const state = deriveState(events, {
-    species: config.species,
-    evolution: evolutionFor(config, events),
-  });
+  const state = deriveState(events, { species: config.species, ...identityFor(config, events) });
   rememberEvolution(events, state);
 
   const caps = detectCaps(

@@ -232,6 +232,66 @@ describe('chooseSpeakKey', () => {
     expect(chooseSpeakKey(before, after, [ev('tests_passed')])?.seed).toBe('fixes:25');
   });
 
+  // The second evolution is settled outside the before/after diff and handed
+  // in, because a branch->branch change is invisible to a diff that only knows
+  // null -> non-null.
+  // Both are once-in-a-lifetime and neither replays, but only one of them can
+  // wait: a re-evolution is still pending on the next hook, while the end of
+  // the ladder is crossed exactly once and is gone if it is not said then.
+  it('yields the moment to the end of the ladder', () => {
+    const reevolution = {
+      branch: 'conjurer' as const,
+      eventKey: 'settled',
+      from: 'night_owl' as const,
+      margin: 0.4,
+      window: 119,
+      scores: quiet.habits,
+    };
+    const before = { ...quiet, level: MAX_LEVEL - 1 };
+    const after = { ...quiet, level: MAX_LEVEL, nextLevelAt: null };
+    expect(chooseSpeakKey(before, after, [ev('commit')], reevolution)?.key).toBe('max_level');
+  });
+
+  it('yields the moment to a level up, and comes back next time', () => {
+    const reevolution = {
+      branch: 'conjurer' as const,
+      eventKey: 'settled',
+      from: 'night_owl' as const,
+      margin: 0.4,
+      window: 119,
+      scores: quiet.habits,
+    };
+    const levelling = { ...quiet, level: quiet.level + 1 };
+    expect(chooseSpeakKey(quiet, levelling, [ev('commit')], reevolution)?.key).toBe('level_up');
+    // Nothing else outranks it, though.
+    expect(chooseSpeakKey(quiet, quiet, [ev('commit')], reevolution)?.key).toBe('reevolved');
+  });
+
+  it('announces a second evolution above everything else', () => {
+    const reevolution = {
+      branch: 'conjurer' as const,
+      eventKey: 'settled',
+      from: 'night_owl' as const,
+      margin: 0.4,
+      window: 119,
+      scores: quiet.habits,
+    };
+    const fixed = {
+      ...quiet,
+      checks: { ...quiet.checks, fixes: quiet.checks.fixes + 1 },
+    };
+    const choice = chooseSpeakKey(quiet, fixed, [ev('pr_merged')], reevolution);
+    expect(choice?.key).toBe('reevolved');
+    expect(choice?.seed).toBe('settled');
+  });
+
+  it('behaves exactly as before when none is handed in', () => {
+    const before = deriveState(series('commit', 2));
+    const after = { ...before, level: before.level + 1 };
+    expect(chooseSpeakKey(before, after, [ev('commit')], null)?.key).toBe('level_up');
+    expect(chooseSpeakKey(before, after, [ev('commit')])?.key).toBe('level_up');
+  });
+
   it('ranks a merge above a test result', () => {
     expect(chooseSpeakKey(quiet, quiet, [ev('tests_passed'), ev('pr_merged')])?.key).toBe('pr_merged');
   });

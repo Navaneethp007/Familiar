@@ -20,6 +20,7 @@ import { drainShellLog } from './adapters/terminal.js';
 import type { FamiliarEvent } from './core/events.js';
 import { deriveState, MAX_LEVEL, type CreatureState } from './core/xp.js';
 import { highestMilestone, milestoneSpeakKey } from './core/milestones.js';
+import { findReevolution, type Reevolution } from './core/reevolve.js';
 import { isNightHour } from './core/habits.js';
 import { shouldSpeak, speak, type SpeakKey } from './core/tone.js';
 import {
@@ -29,7 +30,7 @@ import {
   writeRenderCache,
 } from './state/config.js';
 import { appendEvents, readEvents } from './state/log.js';
-import { evolutionFor, rememberEvolution } from './state/identity.js';
+import { identityFor, rememberEvolution, rememberReevolution } from './state/identity.js';
 
 /**
  * How long a hook may keep starting new repos in a git scan.
@@ -101,6 +102,7 @@ export function readStdin(timeoutMs = 2_000): Promise<string> {
  */
 const ALWAYS_SPEAK: ReadonlySet<SpeakKey> = new Set<SpeakKey>([
   'evolved',
+  'reevolved',
   'level_up',
   'max_level',
   'milestone_commits',
@@ -112,6 +114,7 @@ export function chooseSpeakKey(
   before: CreatureState,
   after: CreatureState,
   fresh: readonly FamiliarEvent[],
+  reevolution?: Reevolution | null,
 ): { key: SpeakKey; seed: string } | null {
   if (after.branch !== null && before.branch === null) {
     return { key: 'evolved', seed: after.evolvedOn?.key ?? 'evolved' };
@@ -128,6 +131,18 @@ export function chooseSpeakKey(
   if (after.level > before.level) {
     return { key: 'level_up', seed: `${after.level}` };
   }
+
+  // Handed in rather than spotted in the diff: a second evolution turns one
+  // branch into another, and the first rung above can only see null becoming
+  // something.
+  //
+  // Below the level rungs on purpose, even though it is rarer than any of
+  // them. Everything above is a transition observed between two folds and
+  // never replayed — cross Lv.100 in the same batch and the end of the ladder
+  // is simply gone if it is not said now. A re-evolution is the one that can
+  // wait: it is not written until it is announced, so it stays true and is
+  // said on the next hook instead.
+  if (reevolution) return { key: 'reevolved', seed: reevolution.eventKey };
 
   // Landmarks outrank the fix keys because they are roughly twenty times
   // rarer: a real 85-day log held 113 fixes and 186 merges but only about
@@ -203,8 +218,8 @@ async function run(event: string): Promise<void> {
   // A lock that differed between the folds would read as an evolution that
   // never happened — or hide one that just did.
   const existing = readEvents();
-  const evolution = evolutionFor(config, existing);
-  const before = deriveState(existing, { species: config.species, evolution });
+  const identity = identityFor(config, existing);
+  const before = deriveState(existing, { species: config.species, ...identity });
   rememberEvolution(existing, before);
 
   const incoming: FamiliarEvent[] = [...eventsFromHook(payload)];
@@ -233,11 +248,39 @@ async function run(event: string): Promise<void> {
   if (fresh.length === 0) return;
 
   const everything = readEvents();
-  const after = deriveState(everything, { species: config.species, evolution });
+  const after = deriveState(everything, { species: config.species, ...identity });
   if (after.branch !== before.branch) rememberEvolution(everything, after);
 
-  const choice = chooseSpeakKey(before, after, fresh);
+  // Settled from `after`, and fed into neither fold: the before/after diff then
+  // still describes only what the fresh events did, and the ladder's first rung
+  // keeps meaning exactly what it says. The new branch takes visible effect on
+  // the next read — a third fold to make it visible half a second earlier would
+  // cost more than anyone could perceive.
+  let reevolution: Reevolution | null = null;
+  if (after.branch) {
+    try {
+      reevolution = findReevolution({
+        events: everything,
+        level: after.level,
+        branch: after.branch,
+        firstEventKey: identity.evolution?.eventKey ?? null,
+        alreadyReevolved: identity.reevolution !== null,
+      });
+    } catch (error) {
+      logError('hook:reevolve', error);
+      reevolution = null;
+    }
+  }
+
+  const choice = chooseSpeakKey(before, after, fresh, reevolution);
   if (!choice) return;
+
+  // Written only once it is the thing being said. Saving it earlier would spend
+  // the one chance a familiar gets on a hook where something else was
+  // announced, and nothing would ever say it happened.
+  if (reevolution && choice.key === 'reevolved') {
+    rememberReevolution({ branch: reevolution.branch, eventKey: reevolution.eventKey });
+  }
 
   // Big moments bypass the cooldown — an evolution should never be swallowed
   // because a commit happened to land a minute earlier.

@@ -196,6 +196,13 @@ export interface DeriveOptions {
    * XP and level still re-derive freely — only identity is sticky.
    */
   evolution?: EvolutionRecord | null;
+  /**
+   * A second evolution, if one has happened. Replaces `evolution` outright —
+   * the branch it names is the only one anything downstream ever sees, because
+   * the form it replaced is meant to leave no trace. Decided in
+   * core/reevolve.ts and stored, never re-derived here.
+   */
+  reevolution?: EvolutionRecord | null;
   /** Overridable so tests and the widget can reason about a fixed moment. */
   now?: Date;
 }
@@ -224,7 +231,7 @@ export function deriveState(
   // event pushed the creature over a level boundary.
   const checks = foldChecks(events);
 
-  const locked = options.evolution ?? null;
+  const locked = options.reevolution ?? options.evolution ?? null;
 
   let xp = 0;
   let level = 1;
@@ -253,6 +260,7 @@ export function deriveState(
     }
   }
 
+  const summary = summariseChecks(checks);
   const levelFloor = totalXpForLevel(level);
   const nextLevelAt = level >= MAX_LEVEL ? null : totalXpForLevel(level + 1);
   const span = nextLevelAt === null ? 0 : nextLevelAt - levelFloor;
@@ -271,8 +279,10 @@ export function deriveState(
     levelFloor,
     nextLevelAt,
     progress,
-    habits: scoreHabits(events),
-    checks: summariseChecks(checks),
+    // Summarised once and shared: scoreHabits would otherwise re-fold the whole
+    // log, on every read, on the statusline path included.
+    habits: scoreHabits(events, summary),
+    checks: summary,
     mood: deriveMood(events, now),
     totals,
     eventCount: events.length,
@@ -311,6 +321,8 @@ export function findEvolution(
 
 export interface EvolutionLock {
   evolution: EvolutionRecord | null;
+  /** Carried through untouched: a second evolution is never curve-derived. */
+  reevolution: EvolutionRecord | null;
   curve: number;
 }
 
@@ -327,11 +339,20 @@ export interface EvolutionLock {
  * Pure: the caller decides whether to save the result.
  */
 export function lockEvolution(stored: EvolutionLock, events: readonly FamiliarEvent[]): EvolutionLock {
-  if (stored.evolution) return { evolution: stored.evolution, curve: CURVE_VERSION };
+  // A second evolution is not curve-derived and must never be invented here;
+  // it only ever rides along. REEVOLVE_LEVEL is deliberately outside this
+  // function's recovery contract: a retune moves who becomes *eligible*, which
+  // is harmless, because nobody is ever de-evolved by it.
+  const reevolution = stored.reevolution;
+  if (stored.evolution) return { evolution: stored.evolution, reevolution, curve: CURVE_VERSION };
   if (stored.curve < CURVE_VERSION) {
-    return { evolution: findEvolution(events, LEGACY_EVOLVE_XP), curve: CURVE_VERSION };
+    return {
+      evolution: findEvolution(events, LEGACY_EVOLVE_XP),
+      reevolution,
+      curve: CURVE_VERSION,
+    };
   }
-  return { evolution: null, curve: stored.curve };
+  return { evolution: null, reevolution, curve: stored.curve };
 }
 
 /** Events inside the trailing 7 days, for the "this week" line on the card. */

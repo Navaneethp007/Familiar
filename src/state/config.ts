@@ -1,9 +1,12 @@
 /**
  * Settings, scan cursors, the statusline render cache, and the error log.
  *
- * Everything in here is disposable. Deleting any of it costs you preferences or
- * makes the next git scan slower — it never costs history, which lives only in
- * events.jsonl.
+ * Nearly everything in here is disposable: deleting it costs you preferences or
+ * makes the next git scan slower, never history, which lives only in
+ * events.jsonl. The one exception is `reevolution` — a second evolution is
+ * decided on a sliding window and so cannot be recovered from the log. Losing
+ * this file reverts such a familiar to the branch it took at EVOLVE_LEVEL, and
+ * silently hands back its once-in-a-lifetime chance.
  */
 
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -54,12 +57,21 @@ export interface FamiliarConfig {
    */
   curve: number;
   /**
-   * The branch, once earned. The one piece of identity that is saved rather
-   * than derived, because a retune would otherwise move the moment it was
-   * decided. Losing this file costs nothing on the current curve: the fold
-   * re-derives the same answer from the log.
+   * The branch, once earned. Saved rather than derived, because a retune would
+   * otherwise move the moment it was decided. Never overwritten: its eventKey
+   * is what calibrates how much evidence a second evolution gets.
    */
   evolution: EvolutionRecord | null;
+  /**
+   * The second and final evolution, decided late in life. When set it IS the
+   * branch, and `evolution` becomes bookkeeping that is displayed nowhere.
+   *
+   * This one genuinely cannot be re-derived: it is decided on a sliding window,
+   * so replaying the log tomorrow would judge a different span. That makes this
+   * the first thing in ~/.familiar whose loss actually costs something — see
+   * the note at the top of this file.
+   */
+  reevolution: EvolutionRecord | null;
 }
 
 export function defaultConfig(species: Species = 'sprout'): FamiliarConfig {
@@ -74,6 +86,7 @@ export function defaultConfig(species: Species = 'sprout'): FamiliarConfig {
     colour: null,
     curve: CURVE_VERSION,
     evolution: null,
+    reevolution: null,
   };
 }
 
@@ -110,6 +123,8 @@ export function readConfig(): FamiliarConfig | null {
   const tone: ToneName =
     raw.tone && (TONES as readonly string[]).includes(raw.tone) ? raw.tone : 'deadpan';
 
+  const evolution = readEvolution(raw.evolution);
+
   return {
     version: typeof raw.version === 'number' ? raw.version : CONFIG_VERSION,
     species,
@@ -121,7 +136,15 @@ export function readConfig(): FamiliarConfig | null {
     colour:
       raw.colour && (COLOURS as readonly string[]).includes(raw.colour) ? raw.colour : null,
     curve: typeof raw.curve === 'number' && Number.isFinite(raw.curve) ? raw.curve : 1,
-    evolution: readEvolution(raw.evolution),
+    evolution,
+    // Read independently of `evolution`, and deliberately so. A second
+    // evolution with no first is incoherent — but `evolution` is recoverable
+    // from the log and this is not, so letting an unreadable first discard the
+    // second would throw away the only thing here that cannot be rebuilt, and
+    // hand back a once-in-a-lifetime chance with nothing to show for it. The
+    // invariant is enforced where it can do no damage: at the write, in
+    // rememberReevolution.
+    reevolution: readEvolution(raw.reevolution),
   };
 }
 

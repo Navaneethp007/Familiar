@@ -7,7 +7,7 @@
  * conclusion from the moment you ran `init`.
  */
 
-import { foldChecks, summariseChecks } from './checks.js';
+import { foldChecks, summariseChecks, type HabitCheckCounts } from './checks.js';
 import type { FamiliarEvent } from './events.js';
 
 export const BRANCHES = [
@@ -82,7 +82,18 @@ function saturate(value: number, halfway: number): number {
   return value / (value + halfway);
 }
 
-export function scoreHabits(events: readonly FamiliarEvent[]): HabitScores {
+/**
+ * @param checks Check counts for exactly the events being scored. MUST come
+ *   from `countChecksIn` over a fold of the WHOLE log — never from folding
+ *   `events` when `events` is a suffix of a longer one. The fold carries
+ *   per-slot state, so a suffix reclassifies fixes as first greens and moves
+ *   score from firefighter to one_shot. Omitted, this folds `events` itself,
+ *   which is correct only for a whole log or a prefix of one.
+ */
+export function scoreHabits(
+  events: readonly FamiliarEvent[],
+  checks?: HabitCheckCounts,
+): HabitScores {
   const commits = events.filter((e) => e.type === 'commit');
   const testsPassed = events.filter((e) => e.type === 'tests_passed').length;
   const merges = events.filter((e) => e.type === 'pr_merged').length;
@@ -117,23 +128,23 @@ export function scoreHabits(events: readonly FamiliarEvent[]): HabitScores {
   // --- check-derived branches --------------------------------------------
   // Every one is share x volume. Share alone would let a single lucky fix win
   // a branch outright; volume alone would just track who runs more commands.
-  const checks = summariseChecks(foldChecks(events));
-  const greens = checks.fixes + checks.firstGreens;
+  const counts = checks ?? summariseChecks(foldChecks(events));
+  const greens = counts.fixes + counts.firstGreens;
 
-  const fixShare = greens > 0 ? checks.fixes / greens : 0;
-  const firefighter = 0.6 * saturate(checks.fixes, 6) + 0.4 * fixShare;
+  const fixShare = greens > 0 ? counts.fixes / greens : 0;
+  const firefighter = 0.6 * saturate(counts.fixes, 6) + 0.4 * fixShare;
 
   const quietFixes =
-    checks.fixesByKind.typecheck + checks.fixesByKind.build + checks.fixesByKind.lint;
-  const quietShare = checks.fixes > 0 ? quietFixes / checks.fixes : 0;
+    counts.fixesByKind.typecheck + counts.fixesByKind.build + counts.fixesByKind.lint;
+  const quietShare = counts.fixes > 0 ? quietFixes / counts.fixes : 0;
   const refactorer = 0.5 * quietShare + 0.5 * saturate(quietFixes, 4);
 
   // Deliberately the inverse of firefighter: never breaking is its own skill.
-  const cleanShare = greens > 0 ? checks.firstGreens / greens : 0;
-  const oneShot = 0.5 * cleanShare + 0.5 * saturate(checks.firstGreens, 8);
+  const cleanShare = greens > 0 ? counts.firstGreens / greens : 0;
+  const oneShot = 0.5 * cleanShare + 0.5 * saturate(counts.firstGreens, 8);
 
-  const agentShare = checks.fixes > 0 ? checks.fixesWithAgent / checks.fixes : 0;
-  const conjurer = 0.5 * agentShare + 0.5 * saturate(checks.fixesWithAgent, 4);
+  const agentShare = counts.fixes > 0 ? counts.fixesWithAgent / counts.fixes : 0;
+  const conjurer = 0.5 * agentShare + 0.5 * saturate(counts.fixesWithAgent, 4);
 
   return { night, test, speed, firefighter, refactorer, oneShot, conjurer };
 }

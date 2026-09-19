@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { makeEvent, type FamiliarEvent } from '../src/core/events.js';
 import { BRANCHES, isNightHour, scoreHabits, selectBranch } from '../src/core/habits.js';
+import { countChecksIn, foldChecks, summariseChecks } from '../src/core/checks.js';
 import { deriveState, EVOLVE_LEVEL, totalXpForLevel } from '../src/core/xp.js';
 import { series } from './helpers.js';
 
@@ -227,5 +228,45 @@ describe('evolution', () => {
     const state = deriveState(series('commit', 3));
     expect(state.branch).toBeNull();
     expect(state.evolvedOn).toBeNull();
+  });
+});
+
+describe('scoring with counts supplied', () => {
+  const withChecks = (): FamiliarEvent[] => [
+    ...commitsAt([2, 14, 15]),
+    ...series('tests_passed', 4, { kind: 'test', repoPath: '/repo/a' }),
+  ];
+
+  it('matches an internal fold when given the same whole log', () => {
+    const events = withChecks();
+    const folded = summariseChecks(foldChecks(events));
+    expect(scoreHabits(events, folded)).toEqual(scoreHabits(events));
+  });
+
+  it('moves only the check-derived scores when the counts change', () => {
+    const events = withChecks();
+    const plain = scoreHabits(events);
+    const starved = scoreHabits(events, {
+      fixes: 0,
+      firstGreens: 0,
+      fixesByKind: { test: 0, build: 0, typecheck: 0, lint: 0 },
+      fixesWithAgent: 0,
+    });
+    expect(starved.night).toBe(plain.night);
+    expect(starved.test).toBe(plain.test);
+    expect(starved.speed).toBe(plain.speed);
+    expect(starved.firefighter).toBe(0);
+    expect(starved.refactorer).toBe(0);
+    expect(starved.oneShot).toBe(0);
+    expect(starved.conjurer).toBe(0);
+  });
+
+  // The window path in reevolve.ts hands in counts filtered from a whole-log
+  // fold. This is the shape it uses.
+  it('accepts counts filtered to a window', () => {
+    const events = withChecks();
+    const keys = new Set(events.slice(-2).map((e) => e.key));
+    const windowed = countChecksIn(foldChecks(events), keys);
+    expect(() => scoreHabits(events.slice(-2), windowed)).not.toThrow();
   });
 });

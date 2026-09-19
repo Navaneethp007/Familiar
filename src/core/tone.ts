@@ -32,6 +32,11 @@ export const SPEAK_KEYS = [
   'pr_merged',
   'level_up',
   'evolved',
+  // The second and last evolution, decided late in life on recent work rather
+  // than on a threshold. No line here may name a branch or imply a previous
+  // form: the shape it replaced is meant to leave no trace. See
+  // core/reevolve.ts.
+  'reevolved',
   'idle',
   // Ambient at the cap. Like `idle`, never returned by chooseSpeakKey — the
   // surfaces pick it themselves, on a clock, because there is no event to
@@ -72,6 +77,11 @@ const HYPE: ToneBank = {
   pr_merged: ['MERGED. thats how its done', 'it landed! straight into main', 'merge complete. absolutely elite'],
   level_up: ['LEVEL UP! look at that bar move', 'new level unlocked, keep going', 'thats a level. earned, not given'],
   evolved: ['EVOLUTION! it changed shape!', 'it evolved!! this is the best day', 'new form unlocked. legendary'],
+  reevolved: [
+    'IT CHANGED AGAIN. after all this time',
+    'a whole new shape. you earned that twice',
+    'second evolution!! nobody sees these',
+  ],
   idle: ['ready when you are', 'lets get something on the board today', 'the bar is waiting'],
   at_peace: [
     'the bar is done. the work is not',
@@ -121,6 +131,11 @@ const DEADPAN: ToneBank = {
   pr_merged: ['merged. it is done.', 'landed. try to look surprised.', 'in main now. no takebacks.'],
   level_up: ['level up. modest applause.', 'a new level. incremental.', 'the number went up.'],
   evolved: ['it evolved. thats new.', 'new form. same problems.', 'evolution complete. mild alarm.'],
+  reevolved: [
+    'it changed again. that is rarer.',
+    'a different shape entirely. noted.',
+    'second evolution. genuinely unusual.',
+  ],
   idle: ['waiting.', 'nothing to report.', 'still here.'],
   at_peace: [
     'the bar retired. i did not.',
@@ -170,6 +185,11 @@ const ZEN: ToneBank = {
   pr_merged: ['the river reaches the sea', 'it has joined the whole', 'complete, and already the past'],
   level_up: ['growth arrives without asking', 'the form deepens', 'a threshold, quietly crossed'],
   evolved: ['what you tended has changed shape', 'the form was always waiting inside', 'becoming, made visible'],
+  reevolved: [
+    'what you became, you have become again',
+    'the shape followed the work, once more',
+    'nothing stays finished for long',
+  ],
   idle: ['stillness is also practice', 'the work waits patiently', 'nothing needs doing right now'],
   at_peace: [
     'nothing left to climb. only to tend',
@@ -219,6 +239,11 @@ const GREMLIN: ToneBank = {
   pr_merged: ['IT WENT IN. straight to main', 'merged!! chaos deployed to prod eventually', 'main has been infiltrated'],
   level_up: ['bigger!! stronger!! louder!!', 'level up. i grow', 'more power. concerning'],
   evolved: ['I CHANGED. look at me', 'new body!! who dis', 'evolved!! completely different creature now'],
+  reevolved: [
+    'AGAIN?? i have changed AGAIN',
+    'new shape!! the old one is gone forever',
+    'twice now. i am unrecognisable',
+  ],
   idle: ['bored. give me something', 'nothing is happening. rude', 'i am waiting and it is unbearable'],
   at_peace: [
     'i ate all the xp. there is none left',

@@ -210,10 +210,11 @@ describe('VOICE_KEYS', () => {
   // speaks aloud must be a once-ever moment; the negative list is the half
   // that actually carries the restraint.
   it('covers only the moments worth interrupting a room for', () => {
-    expect(VOICE_KEYS.size).toBe(8);
+    expect(VOICE_KEYS.size).toBe(9);
     for (const key of [
       'level_up',
       'evolved',
+      'reevolved',
       'max_level',
       'milestone_commits',
       'milestone_merges',
